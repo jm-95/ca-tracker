@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 
 const STAGES = [
-  { key: "data_collection", label: "Data Collection",       icon: "📥" },
-  { key: "tally_entry",     label: "Tally Entry",           icon: "📒" },
-  { key: "bank_recon",      label: "Bank Reconciliation",   icon: "🏦" },
-  { key: "gst_recon",       label: "GST Reconciliation",    icon: "📊" },
-  { key: "tds_entries",     label: "TDS Entries",           icon: "🧾" },
-  { key: "review",          label: "Review & Finalization", icon: "✅" },
+  { key: "data_collection", hasChecklist: false, label: "Data Collection",       icon: "📥" },
+  { key: "tally_entry",     hasChecklist: true ,     label: "Accounting Entry",           icon: "📒" },
+  { key: "bank_recon",      hasChecklist: true ,      label: "Bank Reconciliation",   icon: "🏦" },
+  { key: "gst_recon",       hasChecklist: false,       label: "GST Reconciliation",    icon: "📊" },
+  { key: "tds_entries",     hasChecklist: false,     label: "TDS Entries",           icon: "🧾" },
+  { key: "review",          hasChecklist: true ,          label: "Review & Finalization", icon: "✅" },
 ];
 
 const ENTITY_TYPES   = ["Individual", "Proprietor", "Partnership Firm", "LLP", "Company"];
@@ -19,7 +19,7 @@ const QUARTERS       = ["Q1 (Apr–Jun)","Q2 (Jul–Sep)","Q3 (Oct–Dec)","Q4 (
 
 function fyList() {
   const list = [];
-  for (let y = 2025; y <= 2026; y++) list.push(`FY ${y}-${String(y+1).slice(2)}`);
+  for (let y = 2022; y <= 2025; y++) list.push(`FY ${y}-${String(y+1).slice(2)}`);
   return list;
 }
 function currentFY() {
@@ -42,7 +42,7 @@ const GRID_COLORS = { "Pending":"#78350F","In Progress":"#1D4ED8","Done":"#16653
 
 function emptyStageData(key) {
   const base = { status:"Pending", doneBy:"", doneDate:"", remarks:"" };
-  if (key === "tally_entry") base.checklist = [];
+  if (["tally_entry","bank_recon","review"].includes(key)) base.checklist = [];
   return base;
 }
 function emptyPeriod() {
@@ -76,7 +76,7 @@ function ensurePeriods(client, fy) {
           filled[p.key][s.key] = { ...emptyStageData(s.key), status: old };
         } else if (!filled[p.key][s.key]) {
           filled[p.key][s.key] = emptyStageData(s.key);
-        } else if (s.key === "tally_entry" && !filled[p.key][s.key].checklist) {
+        } else if (["tally_entry","bank_recon","review"].includes(s.key) && !filled[p.key][s.key].checklist) {
           filled[p.key][s.key].checklist = [];
         }
       });
@@ -188,23 +188,22 @@ export default function Tracker({ session }) {
     if (updated) await persistClient(updated);
   };
 
-  const handleAddChecklistItem = async (clientId, periodKey, label) => {
+  const handleAddChecklistItem = async (clientId, periodKey, stageKey, label) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
     const newItem = { id: Date.now().toString(), label, status:"Pending", doneBy:"", doneDate:"" };
     const allPeriods = periodsForClient(client);
-    // Add to ALL periods in this FY — each gets a fresh copy with Pending status
+    // Add to ALL periods in this FY — each gets a fresh Pending copy
     const updated = applyUpdate(clientId, c => {
       const fyData = { ...c.periods?.[activeFY] };
       allPeriods.forEach(p => {
-        const existing = fyData[p.key]?.tally_entry?.checklist || [];
-        // Only add if this item id doesn't already exist in this period
+        const existing = fyData[p.key]?.[stageKey]?.checklist || [];
         const alreadyExists = existing.some(i => i.id === newItem.id);
         if (!alreadyExists) {
           fyData[p.key] = {
             ...fyData[p.key],
-            tally_entry: {
-              ...fyData[p.key]?.tally_entry,
+            [stageKey]: {
+              ...fyData[p.key]?.[stageKey],
               checklist: [...existing, { ...newItem, status:"Pending", doneBy:"", doneDate:"" }]
             }
           };
@@ -215,30 +214,30 @@ export default function Tracker({ session }) {
     if (updated) await persistClient(updated);
   };
 
-  const handleChecklistItemUpdate = async (clientId, periodKey, itemId, field, value) => {
+  const handleChecklistItemUpdate = async (clientId, periodKey, stageKey, itemId, field, value) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
-    const existing = client.periods?.[activeFY]?.[periodKey]?.tally_entry?.checklist || [];
+    const existing = client.periods?.[activeFY]?.[periodKey]?.[stageKey]?.checklist || [];
     const newList  = existing.map(item => item.id===itemId ? { ...item, [field]:value } : item);
     const updated  = applyUpdate(clientId, c => ({
       ...c, periods: { ...c.periods, [activeFY]: { ...c.periods?.[activeFY],
         [periodKey]: { ...c.periods?.[activeFY]?.[periodKey],
-          tally_entry: { ...c.periods?.[activeFY]?.[periodKey]?.tally_entry, checklist: newList }
+          [stageKey]: { ...c.periods?.[activeFY]?.[periodKey]?.[stageKey], checklist: newList }
         }
       }}
     }));
     if (updated) await persistClient(updated);
   };
 
-  const handleDeleteChecklistItem = async (clientId, periodKey, itemId) => {
+  const handleDeleteChecklistItem = async (clientId, periodKey, stageKey, itemId) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
-    const existing = client.periods?.[activeFY]?.[periodKey]?.tally_entry?.checklist || [];
+    const existing = client.periods?.[activeFY]?.[periodKey]?.[stageKey]?.checklist || [];
     const newList  = existing.filter(item => item.id !== itemId);
     const updated  = applyUpdate(clientId, c => ({
       ...c, periods: { ...c.periods, [activeFY]: { ...c.periods?.[activeFY],
         [periodKey]: { ...c.periods?.[activeFY]?.[periodKey],
-          tally_entry: { ...c.periods?.[activeFY]?.[periodKey]?.tally_entry, checklist: newList }
+          [stageKey]: { ...c.periods?.[activeFY]?.[periodKey]?.[stageKey], checklist: newList }
         }
       }}
     }));
@@ -548,7 +547,7 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
 
   const addItem = () => {
     if (!newItemLabel.trim()) return;
-    onAddChecklistItem(clientId, periodKey, newItemLabel.trim());
+    onAddChecklistItem(clientId, periodKey, stage.key, newItemLabel.trim());
     setNewItemLabel("");
   };
 
@@ -615,39 +614,38 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
               rows={2} style={{fontSize:12,resize:"vertical"}}/>
           </div>
 
-          {/* Tally checklist */}
-          {stage.key === "tally_entry" && (
+          {/* Checklist (for stages that support it) */}
+          {stage.hasChecklist && (
             <div>
-              <div className="lbl" style={{marginBottom:8}}>Tally Entry Checklist</div>
+              <div className="lbl" style={{marginBottom:8}}>{stage.label} Checklist</div>
               {(stageData.checklist||[]).length === 0 && (
                 <div style={{fontSize:12,color:"#334155",marginBottom:10,fontStyle:"italic"}}>No checklist items yet. Add items below.</div>
               )}
               <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                 {(stageData.checklist||[]).map(item=>(
                   <div key={item.id} className="checklist-row">
-                    {/* Toggle done circle */}
                     <div onClick={()=>{
                         const next=item.status==="Pending"?"Done":item.status==="Done"?"N/A":"Pending";
-                        onChecklistItemUpdate(clientId,periodKey,item.id,"status",next);
+                        onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"status",next);
                       }}
                       style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${STATUS_STYLES[item.status||"Pending"].dot}`,background:item.status==="Done"?STATUS_STYLES["Done"].dot:item.status==="N/A"?STATUS_STYLES["N/A"].dot:"transparent",cursor:"pointer",flexShrink:0,transition:"all .14s"}}
                     />
                     <span style={{flex:1,fontSize:12,color:item.status==="Done"?"#334155":"#CBD5E1",textDecoration:item.status==="Done"?"line-through":"none"}}>{item.label}</span>
                     <input className="inp-sm" placeholder="Done by"
                       value={item.doneBy||""}
-                      onChange={e=>onChecklistItemUpdate(clientId,periodKey,item.id,"doneBy",e.target.value)}
+                      onChange={e=>onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"doneBy",e.target.value)}
                       style={{width:88}}/>
                     <input className="inp-sm" type="date"
                       value={item.doneDate||""}
-                      onChange={e=>onChecklistItemUpdate(clientId,periodKey,item.id,"doneDate",e.target.value)}
+                      onChange={e=>onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"doneDate",e.target.value)}
                       style={{width:130,colorScheme:"dark"}}/>
-                    <button onClick={()=>onDeleteChecklistItem(clientId,periodKey,item.id)}
+                    <button onClick={()=>onDeleteChecklistItem(clientId,periodKey,stage.key,item.id)}
                       style={{background:"transparent",border:"none",color:"#334155",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}}>✕</button>
                   </div>
                 ))}
               </div>
               <div style={{display:"flex",gap:8}}>
-                <input className="inp" placeholder="e.g. Enter purchase expenses"
+                <input className="inp" placeholder="Add a checklist item…"
                   value={newItemLabel}
                   onChange={e=>setNewItemLabel(e.target.value)}
                   onKeyDown={e=>e.key==="Enter"&&addItem()}
