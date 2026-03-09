@@ -191,15 +191,27 @@ export default function Tracker({ session }) {
   const handleAddChecklistItem = async (clientId, periodKey, label) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
-    const existing = client.periods?.[activeFY]?.[periodKey]?.tally_entry?.checklist || [];
-    const newItem  = { id: Date.now().toString(), label, status:"Pending", doneBy:"", doneDate:"" };
-    const updated  = applyUpdate(clientId, c => ({
-      ...c, periods: { ...c.periods, [activeFY]: { ...c.periods?.[activeFY],
-        [periodKey]: { ...c.periods?.[activeFY]?.[periodKey],
-          tally_entry: { ...c.periods?.[activeFY]?.[periodKey]?.tally_entry, checklist: [...existing, newItem] }
+    const newItem = { id: Date.now().toString(), label, status:"Pending", doneBy:"", doneDate:"" };
+    const allPeriods = periodsForClient(client);
+    // Add to ALL periods in this FY — each gets a fresh copy with Pending status
+    const updated = applyUpdate(clientId, c => {
+      const fyData = { ...c.periods?.[activeFY] };
+      allPeriods.forEach(p => {
+        const existing = fyData[p.key]?.tally_entry?.checklist || [];
+        // Only add if this item id doesn't already exist in this period
+        const alreadyExists = existing.some(i => i.id === newItem.id);
+        if (!alreadyExists) {
+          fyData[p.key] = {
+            ...fyData[p.key],
+            tally_entry: {
+              ...fyData[p.key]?.tally_entry,
+              checklist: [...existing, { ...newItem, status:"Pending", doneBy:"", doneDate:"" }]
+            }
+          };
         }
-      }}
-    }));
+      });
+      return { ...c, periods: { ...c.periods, [activeFY]: fyData } };
+    });
     if (updated) await persistClient(updated);
   };
 
