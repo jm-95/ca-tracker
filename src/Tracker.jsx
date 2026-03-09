@@ -81,7 +81,7 @@ export default function Tracker({ session }) {
 
   // ── Load from Supabase ──
   const loadClients = useCallback(async () => {
-    const { data, error } = await supabase.from("clients").select("*").order("name");
+    const { data, error } = await supabase.from("clients").select("*");
     if (!error && data) setClients(data.map(r => ({ ...r.data, id: r.id })));
     setLoaded(true);
   }, []);
