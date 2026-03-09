@@ -21,7 +21,7 @@ const QUARTERS   = ["Q1 (Apr–Jun)","Q2 (Jul–Sep)","Q3 (Oct–Dec)","Q4 (Jan�
 
 function fyList() {
   const list = [];
-  for (let y = 2022; y <= 2025; y++) list.push(`FY ${y}-${String(y+1).slice(2)}`);
+  for (let y = 2024; y <= 2026; y++) list.push(`FY ${y}-${String(y+1).slice(2)}`);
   return list;
 }
 function currentFY() {
