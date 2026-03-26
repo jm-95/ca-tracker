@@ -101,6 +101,7 @@ export default function Tracker({ session }) {
   const [filterStatus, setFilterStatus] = useState("All");
   const [saving,       setSaving]       = useState(false);
   const [toast,        setToast]        = useState(null);
+  const [showExport,   setShowExport]   = useState(false);
 
   const loadClients = useCallback(async () => {
     const { data, error } = await supabase.from("clients").select("*");
@@ -394,6 +395,8 @@ export default function Tracker({ session }) {
           <span style={{fontSize:11,color:"#334155"}}>{session.user.email}</span>
           <button className="btn-g" style={{padding:"6px 12px",fontSize:12}} onClick={async()=>await supabase.auth.signOut()}>Sign out</button>
           <button className={`fy-btn${view==="dashboard"?" act":""}`} onClick={()=>{setView("dashboard");setSelected(null);}}>📊 Dashboard</button>
+          <button className="btn-g" style={{padding:"6px 12px",fontSize:12}} onClick={()=>downloadAllAuditLog(clients)}>⬇ Audit Log</button>
+          <button className="btn-g" style={{padding:"6px 12px",fontSize:12,borderColor:"#1D4ED8",color:"#93C5FD"}} onClick={()=>setShowExport(true)}>📤 Export</button>
           <button className="btn-p" onClick={()=>{setEditClient(newClient());setView("form");}}>+ Add Client</button>
         </div>
       </div>
@@ -481,6 +484,10 @@ export default function Tracker({ session }) {
 
       {view==="form" && editClient && (
         <ClientForm client={editClient} onSave={handleSaveClient} onCancel={()=>setView(selected?"detail":"list")}/>
+      )}
+
+      {showExport && (
+        <ExportModal clients={clients} onClose={()=>setShowExport(false)} />
       )}
 
       {toast && (
@@ -1149,6 +1156,280 @@ function ClientForm({ client, onSave, onCancel }) {
         <div style={{padding:"13px 22px",borderTop:"1px solid #1E293B",display:"flex",justifyContent:"flex-end",gap:8}}>
           <button className="btn-g" onClick={onCancel}>Cancel</button>
           <button className="btn-p" onClick={()=>form.name.trim()&&onSave(form)} style={{opacity:form.name.trim()?1:.4}}>{isNew?"Add Client":"Save Changes"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Audit Log Download (standalone) ──────────────────────────────────────────
+
+function downloadAllAuditLog(clients) {
+  const rows = [];
+  clients.forEach(client => {
+    (client.auditLog || []).forEach(e => {
+      let description = "";
+      if (e.type === "status")                description = `${e.stage} [${e.period}] changed "${e.from}" → "${e.to}"`;
+      else if (e.type === "field")            description = `${e.stage} [${e.period}] — ${e.field} set to "${e.to}"`;
+      else if (e.type === "checklist_add")    description = `${e.stage} [${e.period}] — checklist added: "${e.item}"`;
+      else if (e.type === "checklist_delete") description = `${e.stage} [${e.period}] — checklist removed: "${e.item}"`;
+      else description = JSON.stringify(e);
+      const d   = new Date(e.ts);
+      const fmt = d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})
+                + " " + d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",hour12:true});
+      rows.push({ Client:client.name, FY:e.fy||"", Actor:e.actor||"", Timestamp:fmt, Description:description });
+    });
+  });
+  rows.sort((a,b) => a.Client.localeCompare(b.Client));
+  const headers = ["Client","FY","Actor","Timestamp","Description"];
+  const csv = [
+    headers.join(","),
+    ...rows.map(r => headers.map(h => `"${(r[h]||"").replace(/"/g,'""')}"`).join(","))
+  ].join("\n");
+  const blob = new Blob([csv], { type:"text/csv" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url; a.download = "Audit_Log_All_Clients.csv"; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Export Modal ──────────────────────────────────────────────────────────────
+
+function ExportModal({ clients, onClose }) {
+  const allFYs = fyList();
+  const [selClients,  setSelClients]  = useState(clients.map(c => c.id));
+  const [selFYs,      setSelFYs]      = useState([currentFY()]);
+  const [periodMode,  setPeriodMode]  = useState("all"); // "all" | "months" | "quarters"
+  const [selPeriods,  setSelPeriods]  = useState([]);
+  const [inclCommLog, setInclCommLog] = useState(true);
+  const [exporting,   setExporting]   = useState(false);
+  const [progress,    setProgress]    = useState("");
+
+  const toggleClient = (id) => setSelClients(p => p.includes(id) ? p.filter(x=>x!==id) : [...p, id]);
+  const toggleFY     = (fy) => setSelFYs(p    => p.includes(fy) ? p.filter(x=>x!==fy) : [...p, fy]);
+  const togglePeriod = (k)  => setSelPeriods(p => p.includes(k) ? p.filter(x=>x!==k)  : [...p, k]);
+  const allCliSel    = selClients.length === clients.length;
+  const togAllCli    = () => setSelClients(allCliSel ? [] : clients.map(c => c.id));
+
+  const allFreqs    = [...new Set(clients.filter(c => selClients.includes(c.id)).map(c => c.frequency))];
+  const hasMonthly  = allFreqs.includes("Monthly");
+  const hasQuarterly= allFreqs.includes("Quarterly");
+
+  const doExport = async () => {
+    if (!selClients.length || !selFYs.length) return;
+    setExporting(true);
+    const loadScript = (src) => new Promise((res, rej) => {
+      if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+      const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+    try {
+      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
+      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js");
+    } catch(e) {
+      setProgress("Failed to load export libraries. Check your connection.");
+      setExporting(false); return;
+    }
+    const XLSX  = window.XLSX;
+    const JSZip = window.JSZip;
+    const zip   = new JSZip();
+    const chosenClients = clients.filter(c => selClients.includes(c.id));
+
+    for (const client of chosenClients) {
+      setProgress(`Exporting ${client.name}…`);
+      const wb = XLSX.utils.book_new();
+
+      for (const fy of selFYs) {
+        const allPeriods = periodsForClient(client);
+        let periodsToExport = allPeriods;
+        if (periodMode !== "all" && selPeriods.length) {
+          periodsToExport = allPeriods.filter(p => selPeriods.includes(p.key));
+        }
+        for (const period of periodsToExport) {
+          const fyData     = client.periods?.[fy] || {};
+          const periodData = fyData[period.key]   || {};
+          const sheetName  = `${fy} - ${period.key}`.replace(/[:\\/?*[\]]/g,"").slice(0, 31);
+          const rows = [];
+          rows.push(["Client Name", client.name]);
+          rows.push(["Entity Type", client.entity]);
+          rows.push(["PAN",         client.pan    || "—"]);
+          rows.push(["GSTIN",       client.gstin  || "—"]);
+          rows.push(["Email",       client.contact|| "—"]);
+          rows.push(["Phone",       client.phone  || "—"]);
+          rows.push(["Frequency",   client.frequency]);
+          rows.push(["FY",          fy]);
+          rows.push(["Period",      period.label]);
+          rows.push([]);
+          rows.push(["Stage","Status","Done By","Done Date","Remarks","Checklist Items"]);
+          STAGES.forEach(stage => {
+            const sd        = periodData[stage.key] || {};
+            const checklist = (sd.checklist || []).map(i =>
+              `[${i.status||"Pending"}] ${i.label}${i.doneBy ? " ("+i.doneBy+")" : ""}`
+            ).join("; ");
+            rows.push([stage.label, sd.status||"Pending", sd.doneBy||"", sd.doneDate||"", sd.remarks||"", checklist]);
+          });
+          const ws = XLSX.utils.aoa_to_sheet(rows);
+          ws["!cols"] = [22, 14, 14, 14, 34, 50].map(w => ({ wch: w }));
+          XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        }
+      }
+
+      if (inclCommLog) {
+        const commRows = [["Date","Note","Added By"]];
+        (client.commLog || []).forEach(e => commRows.push([e.date, e.note, e.addedBy]));
+        const ws = XLSX.utils.aoa_to_sheet(commRows);
+        ws["!cols"] = [{ wch:14 }, { wch:50 }, { wch:14 }];
+        XLSX.utils.book_append_sheet(wb, ws, "Communication Log");
+      }
+
+      const wbBuf   = XLSX.write(wb, { bookType:"xlsx", type:"array" });
+      const safeName= client.name.replace(/[^\w\s]/g,"").replace(/\s+/g,"_");
+      zip.file(`${safeName}.xlsx`, wbBuf);
+    }
+
+    setProgress("Compressing…");
+    const blob = await zip.generateAsync({ type:"blob" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = "CA_Tracker_Export.zip"; a.click();
+    URL.revokeObjectURL(url);
+    setExporting(false); setProgress(""); onClose();
+  };
+
+  const S = {
+    row:  { display:"flex", alignItems:"center", gap:8, cursor:"pointer", padding:"5px 8px", borderRadius:6, transition:"background .12s" },
+    chk:  { width:14, height:14, borderRadius:3, border:"1px solid #1E293B", background:"#0A0F1E", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, color:"#fff" },
+    chkOn:{ background:"#2563EB", borderColor:"#2563EB" },
+    lbl:  { fontSize:12, color:"#CBD5E1" },
+    sec:  { marginBottom:18 },
+    sh:   { fontSize:10, fontWeight:700, letterSpacing:".8px", textTransform:"uppercase", color:"#475569", marginBottom:8 },
+  };
+  const Chk = ({ on, onClick, label, style }) => (
+    <div style={{ ...S.row, ...style }} onClick={onClick}>
+      <div style={{ ...S.chk, ...(on ? S.chkOn : {}) }}>{on && "✓"}</div>
+      <span style={S.lbl}>{label}</span>
+    </div>
+  );
+
+  return (
+    <div className="modal-bg" onClick={e => e.target === e.currentTarget && !exporting && onClose()}>
+      <div className="modal" style={{ maxWidth:700 }}>
+        <div style={{padding:"16px 22px",borderBottom:"1px solid #1E293B",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:16,color:"#F1F5F9"}}>📤 Export Data</h2>
+            <p style={{fontSize:11,color:"#475569",marginTop:2}}>One Excel file per client, bundled into a single ZIP download.</p>
+          </div>
+          {!exporting && <button className="btn-g" onClick={onClose} style={{padding:"5px 10px"}}>✕</button>}
+        </div>
+
+        <div style={{padding:"18px 22px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:22,maxHeight:"62vh",overflowY:"auto"}}>
+          {/* Left column */}
+          <div>
+            <div style={S.sec}>
+              <div style={S.sh}>Clients</div>
+              <Chk on={allCliSel} onClick={togAllCli} label="Select All"
+                style={{marginBottom:6,paddingBottom:8,borderBottom:"1px solid #1E293B"}}/>
+              <div style={{maxHeight:170,overflowY:"auto",display:"flex",flexDirection:"column",gap:1}}>
+                {clients.map(c => (
+                  <Chk key={c.id} on={selClients.includes(c.id)} onClick={() => toggleClient(c.id)} label={c.name}/>
+                ))}
+              </div>
+            </div>
+
+            <div style={S.sec}>
+              <div style={S.sh}>Financial Year</div>
+              <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                {allFYs.map(fy => (
+                  <Chk key={fy} on={selFYs.includes(fy)} onClick={() => toggleFY(fy)} label={fy}/>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Right column */}
+          <div>
+            <div style={S.sec}>
+              <div style={S.sh}>Periods to Include</div>
+              <div style={{display:"flex",flexDirection:"column",gap:1,marginBottom:10}}>
+                {[["all","All periods"],["months","Specific months"],["quarters","Specific quarters"]].map(([v,l]) => (
+                  <div key={v} style={S.row} onClick={() => { setPeriodMode(v); setSelPeriods([]); }}>
+                    <div style={{...S.chk,borderRadius:"50%",...(periodMode===v?S.chkOn:{})}}>{periodMode===v&&"●"}</div>
+                    <span style={S.lbl}>{l}</span>
+                  </div>
+                ))}
+              </div>
+
+              {periodMode === "months" && hasMonthly && (
+                <div>
+                  <div style={{fontSize:10,color:"#334155",marginBottom:6}}>Select months:</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
+                    {MONTHS.map(m => (
+                      <div key={m} onClick={() => togglePeriod(m)}
+                        style={{padding:"4px 0",borderRadius:5,fontSize:11,fontWeight:600,cursor:"pointer",textAlign:"center",
+                          background:selPeriods.includes(m)?"#1E3A5F":"#0A0F1E",
+                          border:`1px solid ${selPeriods.includes(m)?"#2563EB":"#1E293B"}`,
+                          color:selPeriods.includes(m)?"#93C5FD":"#475569"}}>
+                        {m}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {periodMode === "quarters" && hasQuarterly && (
+                <div>
+                  <div style={{fontSize:10,color:"#334155",marginBottom:6}}>Select quarters:</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {QUARTERS.map(q => (
+                      <div key={q} onClick={() => togglePeriod(q)}
+                        style={{padding:"6px 10px",borderRadius:5,fontSize:11,fontWeight:600,cursor:"pointer",
+                          background:selPeriods.includes(q)?"#1E3A5F":"#0A0F1E",
+                          border:`1px solid ${selPeriods.includes(q)?"#2563EB":"#1E293B"}`,
+                          color:selPeriods.includes(q)?"#93C5FD":"#475569"}}>
+                        {q}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {periodMode !== "all" && !hasMonthly && !hasQuarterly && (
+                <div style={{fontSize:11,color:"#475569",fontStyle:"italic"}}>No matching periods for selected clients.</div>
+              )}
+            </div>
+
+            <div style={S.sec}>
+              <div style={S.sh}>Additional Sheets</div>
+              <Chk on={inclCommLog} onClick={() => setInclCommLog(!inclCommLog)} label="Include Communication Log sheet"/>
+            </div>
+
+            <div style={{background:"#06080F",border:"1px solid #1E293B",borderRadius:8,padding:"11px 13px"}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#334155",letterSpacing:".6px",textTransform:"uppercase",marginBottom:7}}>Output Preview</div>
+              <div style={{fontSize:11,color:"#475569",lineHeight:1.8}}>
+                📁 <code style={{color:"#93C5FD"}}>CA_Tracker_Export.zip</code><br/>
+                {clients.filter(c=>selClients.includes(c.id)).map(c=>{
+                  const safe = c.name.replace(/[^\w\s]/g,"").replace(/\s+/g,"_");
+                  return <span key={c.id}>└ <code style={{color:"#86EFAC"}}>{safe}.xlsx</code><br/></span>;
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{padding:"13px 22px",borderTop:"1px solid #1E293B",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:12,color:"#334155"}}>
+            {selClients.length} client{selClients.length!==1?"s":""} · {selFYs.length} FY{selFYs.length!==1?"s":""}
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {progress && <span style={{fontSize:11,color:"#93C5FD",animation:"fadeUp .2s ease"}}>{progress}</span>}
+            {!exporting && <button className="btn-g" onClick={onClose}>Cancel</button>}
+            <button className="btn-p"
+              onClick={doExport}
+              disabled={exporting || !selClients.length || !selFYs.length}
+              style={{opacity:(exporting||!selClients.length||!selFYs.length)?0.5:1,minWidth:110}}>
+              {exporting ? "⏳ Exporting…" : "⬇ Export ZIP"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
