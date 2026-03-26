@@ -767,141 +767,215 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
-function Dashboard({ clients, activeFY, onSelectClient }) {
-  const now        = new Date();
-  const nowMonth   = now.getMonth(); // 0-11
-  // Current period key for monthly clients
-  const curMonthIdx = nowMonth >= 3 ? nowMonth - 3 : nowMonth + 9;
-  const curMonthKey = MONTHS[curMonthIdx];
+function DashboardTable({ rows, onSelectClient, isOverdue }) {
+  if (rows.length === 0) return null;
+  return (
+    <div style={{borderRadius:10,overflow:"hidden",border:isOverdue?"1px solid #7F1D1D":"1px solid #1E293B"}}>
+      <div style={{display:"grid",gridTemplateColumns:`1fr 70px repeat(${STAGES.length},1fr)`,background:isOverdue?"#1A0505":"#06080F",borderBottom:isOverdue?"1px solid #7F1D1D55":"1px solid #1E293B",padding:"8px 14px",gap:6}}>
+        <div className="lbl" style={{margin:0,color:isOverdue?"#FCA5A5":"#475569"}}>Client</div>
+        <div className="lbl" style={{margin:0,color:isOverdue?"#FCA5A5":"#475569"}}>Period</div>
+        {STAGES.map(s=>(
+          <div key={s.key} className="lbl" style={{margin:0,textAlign:"center",fontSize:9,color:isOverdue?"#FCA5A5":"#475569"}}>{s.label}</div>
+        ))}
+      </div>
+      {rows.map(row=>{
+        const avBg=["#1E3A5F","#1C3B2C","#3B1D6E","#4A1942","#2D1B00","#1A2E4A"][row.client.name.charCodeAt(0)%6];
+        const initials=row.client.name.split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
+        return (
+          <div key={`${row.client.id}-${row.periodKey}`}
+            onClick={()=>onSelectClient(row.client,row.periodKey)}
+            style={{display:"grid",gridTemplateColumns:`1fr 70px repeat(${STAGES.length},1fr)`,padding:"9px 14px",gap:6,borderBottom:isOverdue?"1px solid #7F1D1D22":"1px solid #0F172A",cursor:"pointer",transition:"background .14s",alignItems:"center",background:isOverdue?"#130303":"transparent"}}
+            onMouseEnter={e=>e.currentTarget.style.background=isOverdue?"#1A0808":"#111827"}
+            onMouseLeave={e=>e.currentTarget.style.background=isOverdue?"#130303":"transparent"}>
+            <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+              <div style={{width:26,height:26,borderRadius:7,background:avBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{initials}</div>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:600,color:isOverdue?"#FCA5A5":"#F1F5F9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.client.name}</div>
+                <div style={{fontSize:10,color:isOverdue?"#7F1D1D":"#334155"}}>{row.client.entity}</div>
+              </div>
+            </div>
+            <div style={{fontSize:11,fontWeight:700,color:isOverdue?"#F87171":"#475569"}}>{row.periodKey}</div>
+            {STAGES.map(s=>{
+              const st=row.periodData[s.key]?.status||"Pending";
+              const dot=STATUS_STYLES[st].dot;
+              const bg=STATUS_STYLES[st].bg;
+              const border=STATUS_STYLES[st].border;
+              return (
+                <div key={s.key} style={{display:"flex",justifyContent:"center"}}>
+                  <div title={st} style={{width:22,height:22,borderRadius:"50%",background:bg,border:`2px solid ${border}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <div style={{width:9,height:9,borderRadius:"50%",background:dot}}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-  // Build list of open rows: { client, periodKey, periodData }
-  const openRows = [];
+function DashboardSection({ title, icon, rows, onSelectClient, isOverdue, defaultOpen=true }) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (rows.length === 0) return null;
+  return (
+    <div style={{marginBottom:14}}>
+      <button onClick={()=>setOpen(!open)}
+        style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:isOverdue?"#1A050588":"#111827",border:isOverdue?"1px solid #7F1D1D":"1px solid #1E293B",borderRadius:open?"8px 8px 0 0":"8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+        <span style={{fontSize:14}}>{icon}</span>
+        <span style={{flex:1,fontSize:12,fontWeight:700,color:isOverdue?"#FCA5A5":"#94A3B8",textAlign:"left"}}>{title}</span>
+        <span style={{fontSize:11,fontWeight:600,padding:"2px 10px",borderRadius:20,background:isOverdue?"#7F1D1D55":"#1E293B",color:isOverdue?"#FCA5A5":"#475569"}}>{rows.length} period{rows.length!==1?"s":""}</span>
+        <span style={{fontSize:11,color:isOverdue?"#7F1D1D":"#334155"}}>{open?"▲":"▼"}</span>
+      </button>
+      {open && <DashboardTable rows={rows} onSelectClient={onSelectClient} isOverdue={isOverdue}/>}
+    </div>
+  );
+}
+
+function Dashboard({ clients, activeFY, onSelectClient }) {
+  const now         = new Date();
+  const nowMonthIdx = now.getMonth() >= 3 ? now.getMonth()-3 : now.getMonth()+9;
+  const curMonthKey = MONTHS[nowMonthIdx];
+
+  // Current quarter key
+  const curQuarterIdx = Math.floor(nowMonthIdx / 3);
+  const curQuarterKey = ["Q1 (Apr–Jun)","Q2 (Jul–Sep)","Q3 (Oct–Dec)","Q4 (Jan–Mar)"][curQuarterIdx];
+
+  // Categorise rows
+  const overdueMonthly=[], overdueQuarterly=[], overdueYearly=[];
+  const currentMonthly=[], currentQuarterly=[], currentYearly=[];
+
   clients.forEach(client => {
-    const periods  = periodsForClient(client);
-    const fyData   = client.periods?.[activeFY] || {};
+    const periods = periodsForClient(client);
+    const fyData  = client.periods?.[activeFY] || {};
     periods.forEach(p => {
       const pd  = fyData[p.key];
       const ost = overallStatus(pd);
-      if (ost === "Done") return; // fully done — skip
-      // For monthly clients, only show up to current month
+      if (ost === "Done") return;
+
+      const row = { client, periodKey: p.key, periodData: pd || {} };
+
       if (client.frequency === "Monthly") {
         const idx = MONTHS.indexOf(p.key);
-        if (idx > curMonthIdx) return; // future month — skip
+        if (idx > nowMonthIdx) return; // future — skip
+        if (idx < nowMonthIdx) overdueMonthly.push(row);
+        else currentMonthly.push(row);
+      } else if (client.frequency === "Quarterly") {
+        const qKeys = ["Q1 (Apr–Jun)","Q2 (Jul–Sep)","Q3 (Oct–Dec)","Q4 (Jan–Mar)"];
+        const idx   = qKeys.indexOf(p.key);
+        if (idx > curQuarterIdx) return;
+        if (idx < curQuarterIdx) overdueQuarterly.push(row);
+        else currentQuarterly.push(row);
+      } else {
+        // Annually — always show if not done
+        overdueYearly.push(row);
       }
-      openRows.push({ client, periodKey: p.key, periodData: pd || {} });
     });
   });
 
-  // Sort: oldest period first, then by client name
-  openRows.sort((a, b) => {
-    const ai = MONTHS.indexOf(a.periodKey);
-    const bi = MONTHS.indexOf(b.periodKey);
-    if (ai !== bi) return ai - bi;
-    return a.client.name.localeCompare(b.client.name);
+  // Sort each group by client name
+  const byName = (a,b) => a.client.name.localeCompare(b.client.name);
+  overdueMonthly.sort((a,b)=>{
+    const ai=MONTHS.indexOf(a.periodKey), bi=MONTHS.indexOf(b.periodKey);
+    return ai!==bi ? ai-bi : byName(a,b);
   });
+  overdueQuarterly.sort(byName);
+  overdueYearly.sort(byName);
+  currentMonthly.sort(byName);
+  currentQuarterly.sort(byName);
+  currentYearly.sort(byName);
 
-  // Summary cards
-  const allClients   = clients.length;
-  const fullyDone    = clients.filter(c => {
+  const totalOverdue = overdueMonthly.length + overdueQuarterly.length + overdueYearly.length;
+  const totalCurrent = currentMonthly.length + currentQuarterly.length + currentYearly.length;
+
+  // Summary stats
+  const allClients = clients.length;
+  const fullyDone  = clients.filter(c => {
     const periods = periodsForClient(c);
     const fyData  = c.periods?.[activeFY] || {};
     return periods.every(p => overallStatus(fyData[p.key]) === "Done");
   }).length;
-  const notStarted   = clients.filter(c => {
-    const periods = periodsForClient(c);
-    const fyData  = c.periods?.[activeFY] || {};
-    const allV    = periods.flatMap(p => STAGES.map(s => fyData[p.key]?.[s.key]?.status || "Pending"));
+  const notStarted = clients.filter(c => {
+    const fyData = c.periods?.[activeFY] || {};
+    const allV   = periodsForClient(c).flatMap(p => STAGES.map(s => fyData[p.key]?.[s.key]?.status||"Pending"));
     return allV.every(v => v === "Pending");
   }).length;
-  const inProgress   = allClients - fullyDone - notStarted;
-  const overallPct   = allClients === 0 ? 0 : Math.round((fullyDone / allClients) * 100);
+  const inProgress = allClients - fullyDone - notStarted;
+  const pct = allClients===0?0:Math.round((fullyDone/allClients)*100);
 
-  const SUMMARY_CARDS = [
-    { label:"Total Clients",  value: allClients,  color:"#2563EB", bg:"#1E3A5F33", border:"#1E3A5F" },
-    { label:"Fully Done",     value: fullyDone,   color:"#22C55E", bg:"#052E1633", border:"#166534" },
-    { label:"In Progress",    value: inProgress,  color:"#3B82F6", bg:"#0C234033", border:"#1E40AF" },
-    { label:"Not Started",    value: notStarted,  color:"#F59E0B", bg:"#2A1A0533", border:"#92400E" },
-    { label:"Overall",        value: `${overallPct}%`, color:"#06B6D4", bg:"#06080F", border:"#164E63" },
+  const CARDS = [
+    { label:"Total Clients", value:allClients, color:"#2563EB", bg:"#1E3A5F33", border:"#1E3A5F" },
+    { label:"Fully Done",    value:fullyDone,  color:"#22C55E", bg:"#052E1633", border:"#166534" },
+    { label:"In Progress",   value:inProgress, color:"#3B82F6", bg:"#0C234033", border:"#1E40AF" },
+    { label:"Not Started",   value:notStarted, color:"#F59E0B", bg:"#2A1A0533", border:"#92400E" },
+    { label:"Overall",       value:`${pct}%`,  color:"#06B6D4", bg:"#06080F",   border:"#164E63" },
   ];
+
+  const allDone = totalOverdue===0 && totalCurrent===0;
 
   return (
     <div>
-      <div style={{marginBottom:20}}>
-        <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:20,fontWeight:700,color:"#F1F5F9",marginBottom:4}}>
-          Dashboard
-        </h2>
-        <div style={{fontSize:12,color:"#475569"}}>Open work across all clients — {activeFY}</div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+        <div>
+          <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:20,fontWeight:700,color:"#F1F5F9",marginBottom:3}}>Dashboard</h2>
+          <div style={{fontSize:12,color:"#475569"}}>{activeFY} — as of {curMonthKey} {now.getFullYear()}</div>
+        </div>
+        {totalOverdue > 0 && (
+          <div style={{background:"#7F1D1D33",border:"1px solid #7F1D1D",borderRadius:10,padding:"8px 16px",display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:18}}>🚨</span>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:"#FCA5A5"}}>{totalOverdue} Overdue Period{totalOverdue!==1?"s":""}</div>
+              <div style={{fontSize:11,color:"#7F1D1D"}}>Requires immediate attention</div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Summary cards */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginBottom:22}}>
-        {SUMMARY_CARDS.map(card => (
-          <div key={card.label} style={{background:card.bg,border:`1px solid ${card.border}`,borderRadius:12,padding:"14px 16px"}}>
-            <div style={{fontSize:24,fontWeight:700,color:card.color,marginBottom:4}}>{card.value}</div>
-            <div style={{fontSize:11,color:"#475569",fontWeight:600,textTransform:"uppercase",letterSpacing:".7px"}}>{card.label}</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:11,marginBottom:22}}>
+        {CARDS.map(c=>(
+          <div key={c.label} style={{background:c.bg,border:`1px solid ${c.border}`,borderRadius:12,padding:"13px 15px"}}>
+            <div style={{fontSize:22,fontWeight:700,color:c.color,marginBottom:3}}>{c.value}</div>
+            <div style={{fontSize:10,color:"#475569",fontWeight:600,textTransform:"uppercase",letterSpacing:".7px"}}>{c.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Open work table */}
-      {openRows.length === 0 ? (
+      {allDone ? (
         <div className="card" style={{padding:40,textAlign:"center"}}>
           <div style={{fontSize:32,marginBottom:10}}>🎉</div>
           <div style={{fontSize:14,fontWeight:600,color:"#22C55E"}}>All caught up!</div>
           <div style={{fontSize:12,color:"#334155",marginTop:4}}>No pending work for {activeFY}</div>
         </div>
       ) : (
-        <div className="card" style={{overflow:"hidden"}}>
-          {/* Table header */}
-          <div style={{display:"grid",gridTemplateColumns:`220px 80px repeat(${STAGES.length},1fr)`,background:"#06080F",borderBottom:"1px solid #1E293B",padding:"9px 14px",gap:6}}>
-            <div className="lbl" style={{margin:0}}>Client</div>
-            <div className="lbl" style={{margin:0}}>Period</div>
-            {STAGES.map(s => (
-              <div key={s.key} className="lbl" style={{margin:0,textAlign:"center",fontSize:9}}>{s.label}</div>
-            ))}
-          </div>
+        <div>
+          {/* Overdue section */}
+          {totalOverdue > 0 && (
+            <div style={{marginBottom:22}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <div style={{height:1,flex:1,background:"#7F1D1D55"}}/>
+                <span style={{fontSize:11,fontWeight:700,color:"#F87171",textTransform:"uppercase",letterSpacing:"1px"}}>⚠ Overdue — Past Periods Not Closed</span>
+                <div style={{height:1,flex:1,background:"#7F1D1D55"}}/>
+              </div>
+              <DashboardSection title="Monthly Clients — Overdue" icon="📅" rows={overdueMonthly} onSelectClient={onSelectClient} isOverdue={true}/>
+              <DashboardSection title="Quarterly Clients — Overdue" icon="📆" rows={overdueQuarterly} onSelectClient={onSelectClient} isOverdue={true}/>
+              <DashboardSection title="Yearly Clients — Overdue" icon="🗓" rows={overdueYearly} onSelectClient={onSelectClient} isOverdue={true}/>
+            </div>
+          )}
 
-          {/* Table rows */}
-          <div style={{maxHeight:"calc(100vh - 320px)",overflowY:"auto"}}>
-            {openRows.map((row, i) => {
-              const avBg = ["#1E3A5F","#1C3B2C","#3B1D6E","#4A1942","#2D1B00","#1A2E4A"][row.client.name.charCodeAt(0)%6];
-              const initials = row.client.name.split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
-              return (
-                <div key={`${row.client.id}-${row.periodKey}`}
-                  onClick={()=>onSelectClient(row.client, row.periodKey)}
-                  style={{display:"grid",gridTemplateColumns:`220px 80px repeat(${STAGES.length},1fr)`,padding:"10px 14px",gap:6,borderBottom:"1px solid #0F172A",cursor:"pointer",transition:"background .14s",alignItems:"center"}}
-                  onMouseEnter={e=>e.currentTarget.style.background="#111827"}
-                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  {/* Client name */}
-                  <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-                    <div style={{width:28,height:28,borderRadius:7,background:avBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{initials}</div>
-                    <div style={{minWidth:0}}>
-                      <div style={{fontSize:12,fontWeight:600,color:"#F1F5F9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.client.name}</div>
-                      <div style={{fontSize:10,color:"#334155"}}>{row.client.entity}</div>
-                    </div>
-                  </div>
-                  {/* Period */}
-                  <div style={{fontSize:11,fontWeight:600,color:"#475569"}}>{row.periodKey}</div>
-                  {/* Stage cells */}
-                  {STAGES.map(s => {
-                    const st  = row.periodData[s.key]?.status || "Pending";
-                    const ss  = STATUS_STYLES[st];
-                    return (
-                      <div key={s.key} style={{display:"flex",justifyContent:"center"}}>
-                        <div style={{padding:"3px 8px",borderRadius:5,background:ss.bg,border:`1px solid ${ss.border}`,color:ss.color,fontSize:10,fontWeight:600,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4}}>
-                          <span style={{width:5,height:5,borderRadius:"50%",background:ss.dot,flexShrink:0}}/>
-                          {st}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{padding:"9px 14px",borderTop:"1px solid #1E293B",background:"#06080F"}}>
-            <span style={{fontSize:11,color:"#334155"}}>{openRows.length} open period{openRows.length!==1?"s":""} across {[...new Set(openRows.map(r=>r.client.id))].length} client{[...new Set(openRows.map(r=>r.client.id))].length!==1?"s":""}</span>
-          </div>
+          {/* Current period section */}
+          {totalCurrent > 0 && (
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <div style={{height:1,flex:1,background:"#1E293B"}}/>
+                <span style={{fontSize:11,fontWeight:700,color:"#475569",textTransform:"uppercase",letterSpacing:"1px"}}>📅 Current Period — {curMonthKey}</span>
+                <div style={{height:1,flex:1,background:"#1E293B"}}/>
+              </div>
+              <DashboardSection title="Monthly Clients" icon="📅" rows={currentMonthly} onSelectClient={onSelectClient} isOverdue={false}/>
+              <DashboardSection title="Quarterly Clients" icon="📆" rows={currentQuarterly} onSelectClient={onSelectClient} isOverdue={false}/>
+              <DashboardSection title="Yearly Clients" icon="🗓" rows={currentYearly} onSelectClient={onSelectClient} isOverdue={false}/>
+            </div>
+          )}
         </div>
       )}
     </div>
