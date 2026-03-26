@@ -244,6 +244,22 @@ export default function Tracker({ session }) {
     if (updated) await persistClient(updated);
   };
 
+  const handleAddCommLog = async (clientId, entry) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    const existing = client.commLog || [];
+    const newEntry = { id: Date.now().toString(), date: entry.date, note: entry.note, addedBy: entry.addedBy };
+    const updated = applyUpdate(clientId, c => ({ ...c, commLog: [newEntry, ...existing] }));
+    if (updated) await persistClient(updated);
+  };
+
+  const handleDeleteCommLog = async (clientId, entryId) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    const updated = applyUpdate(clientId, c => ({ ...c, commLog: (c.commLog||[]).filter(e => e.id !== entryId) }));
+    if (updated) await persistClient(updated);
+  };
+
   const filtered = clients.filter(c => {
     const ms = c.name.toLowerCase().includes(search.toLowerCase()) || (c.pan||"").toLowerCase().includes(search.toLowerCase());
     const me = filterEntity==="All" || c.entity===filterEntity;
@@ -388,6 +404,8 @@ export default function Tracker({ session }) {
               onAddChecklistItem={handleAddChecklistItem}
               onChecklistItemUpdate={handleChecklistItemUpdate}
               onDeleteChecklistItem={handleDeleteChecklistItem}
+              onAddCommLog={handleAddCommLog}
+              onDeleteCommLog={handleDeleteCommLog}
             />
           )}
         </div>
@@ -408,7 +426,7 @@ export default function Tracker({ session }) {
 
 // ── Detail View ───────────────────────────────────────────────────────────────
 
-function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, onDelete, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem }) {
+function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, onDelete, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAddCommLog, onDeleteCommLog }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const periods    = periodsForClient(client);
   const fyData     = client.periods?.[activeFY] || {};
@@ -532,6 +550,14 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
           ))}
         </div>
       </div>
+
+      {/* Communication Log */}
+      <CommunicationLog
+        clientId={client.id}
+        entries={client.commLog||[]}
+        onAdd={onAddCommLog}
+        onDelete={onDeleteCommLog}
+      />
     </div>
   );
 }
@@ -656,6 +682,98 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Communication Log ─────────────────────────────────────────────────────────
+
+function CommunicationLog({ clientId, entries, onAdd, onDelete }) {
+  const today = new Date().toISOString().split("T")[0];
+  const [form, setForm]   = useState({ date: today, note: "", addedBy: "" });
+  const [adding, setAdding] = useState(false);
+  const [confirmId, setConfirmId] = useState(null);
+
+  const handleAdd = () => {
+    if (!form.note.trim() || !form.addedBy.trim() || !form.date) return;
+    onAdd(clientId, form);
+    setForm({ date: today, note: "", addedBy: "" });
+    setAdding(false);
+  };
+
+  return (
+    <div className="card" style={{padding:18, marginTop:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div className="lbl" style={{color:"#2563EB",margin:0}}>💬 Communication Log</div>
+        <button className="btn-p" style={{padding:"5px 13px",fontSize:12}} onClick={()=>setAdding(!adding)}>
+          {adding ? "Cancel" : "+ Add Entry"}
+        </button>
+      </div>
+
+      {/* Add entry form */}
+      {adding && (
+        <div style={{background:"#06080F",border:"1px solid #1E293B",borderRadius:9,padding:13,marginBottom:14,display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div>
+              <div className="lbl">Date</div>
+              <input className="inp" type="date" value={form.date}
+                onChange={e=>setForm(f=>({...f,date:e.target.value}))}
+                style={{fontSize:12,colorScheme:"dark"}}/>
+            </div>
+            <div>
+              <div className="lbl">Added By</div>
+              <input className="inp" placeholder="e.g. Jay"
+                value={form.addedBy}
+                onChange={e=>setForm(f=>({...f,addedBy:e.target.value}))}
+                style={{fontSize:12}}/>
+            </div>
+          </div>
+          <div>
+            <div className="lbl">Note</div>
+            <textarea className="inp" placeholder="e.g. Called client, documents awaited."
+              value={form.note}
+              onChange={e=>setForm(f=>({...f,note:e.target.value}))}
+              rows={2} style={{fontSize:12,resize:"vertical"}}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end"}}>
+            <button className="btn-p" onClick={handleAdd}
+              style={{opacity:(form.note.trim()&&form.addedBy.trim()&&form.date)?1:.4,fontSize:12,padding:"6px 16px"}}>
+              Save Entry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Entries list */}
+      {entries.length === 0 && !adding && (
+        <div style={{fontSize:12,color:"#334155",fontStyle:"italic",textAlign:"center",padding:"14px 0"}}>
+          No communication entries yet.
+        </div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {entries.map(entry => (
+          <div key={entry.id} style={{display:"flex",gap:12,padding:"10px 13px",background:"#06080F",borderRadius:8,border:"1px solid #1E293B",alignItems:"flex-start"}}>
+            <div style={{flexShrink:0,marginTop:2}}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:"#2563EB",marginTop:4}}/>
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.6}}>{entry.note}</div>
+              <div style={{display:"flex",gap:12,marginTop:5}}>
+                <span style={{fontSize:11,color:"#475569"}}>📅 {entry.date}</span>
+                <span style={{fontSize:11,color:"#475569"}}>👤 {entry.addedBy}</span>
+              </div>
+            </div>
+            {confirmId === entry.id
+              ? <button onClick={()=>{onDelete(clientId,entry.id);setConfirmId(null);}}
+                  style={{background:"#7F1D1D55",border:"1px solid #7F1D1D",color:"#FCA5A5",borderRadius:6,padding:"3px 9px",fontSize:11,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>
+                  Confirm?
+                </button>
+              : <button onClick={()=>setConfirmId(entry.id)}
+                  style={{background:"transparent",border:"none",color:"#334155",cursor:"pointer",fontSize:14,padding:"0 2px",flexShrink:0}}>✕</button>
+            }
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
