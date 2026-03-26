@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 
 const STAGES = [
-  { key: "data_collection", hasChecklist: false, label: "Data Collection",       icon: "📥" },
+  { key: "data_collection", hasChecklist: true , label: "Data Collection",       icon: "📥" },
   { key: "tally_entry",     hasChecklist: true ,     label: "Accounting Entry",           icon: "📒" },
   { key: "bank_recon",      hasChecklist: true ,      label: "Bank Reconciliation",   icon: "🏦" },
   { key: "gst_recon",       hasChecklist: false,       label: "GST Reconciliation",    icon: "📊" },
@@ -19,7 +19,7 @@ const QUARTERS       = ["Q1 (Apr–Jun)","Q2 (Jul–Sep)","Q3 (Oct–Dec)","Q4 (
 
 function fyList() {
   const list = [];
-  for (let y = 2025; y <= 2026; y++) list.push(`FY ${y}-${String(y+1).slice(2)}`);
+  for (let y = 2022; y <= 2025; y++) list.push(`FY ${y}-${String(y+1).slice(2)}`);
   return list;
 }
 function currentFY() {
@@ -42,7 +42,7 @@ const GRID_COLORS = { "Pending":"#78350F","In Progress":"#1D4ED8","Done":"#16653
 
 function emptyStageData(key) {
   const base = { status:"Pending", doneBy:"", doneDate:"", remarks:"" };
-  if (["tally_entry","bank_recon","review"].includes(key)) base.checklist = [];
+  if (["data_collection","tally_entry","bank_recon","review"].includes(key)) base.checklist = [];
   return base;
 }
 function emptyPeriod() {
@@ -76,7 +76,7 @@ function ensurePeriods(client, fy) {
           filled[p.key][s.key] = { ...emptyStageData(s.key), status: old };
         } else if (!filled[p.key][s.key]) {
           filled[p.key][s.key] = emptyStageData(s.key);
-        } else if (["tally_entry","bank_recon","review"].includes(s.key) && !filled[p.key][s.key].checklist) {
+        } else if (["data_collection","tally_entry","bank_recon","review"].includes(s.key) && !filled[p.key][s.key].checklist) {
           filled[p.key][s.key].checklist = [];
         }
       });
