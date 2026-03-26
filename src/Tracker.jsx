@@ -19,7 +19,7 @@ const QUARTERS       = ["Q1 (Apr–Jun)","Q2 (Jul–Sep)","Q3 (Oct–Dec)","Q4 (
 
 function fyList() {
   const list = [];
-  for (let y = 2022; y <= 2025; y++) list.push(`FY ${y}-${String(y+1).slice(2)}`);
+  for (let y = 2026; y <= 2030; y++) list.push(`FY ${y}-${String(y+1).slice(2)}`);
   return list;
 }
 function currentFY() {
@@ -177,15 +177,31 @@ export default function Tracker({ session }) {
   };
 
   const handleStageUpdate = async (clientId, periodKey, stageKey, field, value) => {
-    const updated = applyUpdate(clientId, client => ({
-      ...client,
-      periods: { ...client.periods, [activeFY]: { ...client.periods?.[activeFY],
-        [periodKey]: { ...client.periods?.[activeFY]?.[periodKey],
-          [stageKey]: { ...client.periods?.[activeFY]?.[periodKey]?.[stageKey], [field]: value }
+    const client = clients.find(c => c.id === clientId);
+    const oldVal = client?.periods?.[activeFY]?.[periodKey]?.[stageKey]?.[field];
+    const updated = applyUpdate(clientId, c => ({
+      ...c,
+      periods: { ...c.periods, [activeFY]: { ...c.periods?.[activeFY],
+        [periodKey]: { ...c.periods?.[activeFY]?.[periodKey],
+          [stageKey]: { ...c.periods?.[activeFY]?.[periodKey]?.[stageKey], [field]: value }
         }
       }}
     }));
-    if (updated) await persistClient(updated);
+    if (updated) {
+      await persistClient(updated);
+      // Record audit for status changes immediately; text fields recorded on blur via onBlur in UI
+      if (field === "status" && oldVal !== value) {
+        const email = session?.user?.email || "";
+        const actor = email.split("@")[0];
+        const stageName = STAGES.find(s => s.key === stageKey)?.label || stageKey;
+        const entry = { id: Date.now().toString(), ts: new Date().toISOString(), actor,
+          type: "status", period: periodKey, fy: activeFY, stage: stageName, from: oldVal||"Pending", to: value };
+        const final = { ...updated, auditLog: [entry, ...(updated.auditLog||[])] };
+        setClients(clients => clients.map(c => c.id===clientId ? final : c));
+        setSelected(final);
+        await persistClient(final);
+      }
+    }
   };
 
   const handleAddChecklistItem = async (clientId, periodKey, stageKey, label) => {
@@ -211,7 +227,18 @@ export default function Tracker({ session }) {
       });
       return { ...c, periods: { ...c.periods, [activeFY]: fyData } };
     });
-    if (updated) await persistClient(updated);
+    if (updated) {
+      await persistClient(updated);
+      const email = session?.user?.email || "";
+      const actor = email.split("@")[0];
+      const stageName = STAGES.find(s => s.key === stageKey)?.label || stageKey;
+      const entry = { id: Date.now().toString(), ts: new Date().toISOString(), actor,
+        type: "checklist_add", period: periodKey, fy: activeFY, stage: stageName, item: label };
+      const final = { ...updated, auditLog: [entry, ...(updated.auditLog||[])] };
+      setClients(clients => clients.map(c => c.id===clientId ? final : c));
+      setSelected(final);
+      await persistClient(final);
+    }
   };
 
   const handleChecklistItemUpdate = async (clientId, periodKey, stageKey, itemId, field, value) => {
@@ -244,6 +271,21 @@ export default function Tracker({ session }) {
     if (updated) await persistClient(updated);
   };
 
+  // ── Audit Trail ──────────────────────────────────────────────────────────────
+  const recordAudit = async (clientId, action) => {
+    // Skip if no meaningful value to record
+    if (action.type === "field" && !action.to) return;
+    const email = session?.user?.email || "";
+    const actor = email.split("@")[0];
+    const entry = { id: Date.now().toString(), ts: new Date().toISOString(), actor, fy: activeFY, ...action };
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    const final = { ...client, auditLog: [entry, ...(client.auditLog||[])] };
+    setClients(cls => cls.map(c => c.id===clientId ? final : c));
+    setSelected(final);
+    await persistClient(final);
+  };
+
   const handleAddCommLog = async (clientId, entry) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
@@ -257,7 +299,19 @@ export default function Tracker({ session }) {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
     const updated = applyUpdate(clientId, c => ({ ...c, commLog: (c.commLog||[]).filter(e => e.id !== entryId) }));
-    if (updated) await persistClient(updated);
+    if (updated) {
+      await persistClient(updated);
+      const email = session?.user?.email || "";
+      const actor = email.split("@")[0];
+      const stageName = STAGES.find(s => s.key === stageKey)?.label || stageKey;
+      const deletedItem = (clients.find(c=>c.id===clientId)?.periods?.[activeFY]?.[periodKey]?.[stageKey]?.checklist||[]).find(i=>i.id===itemId);
+      const entry = { id: Date.now().toString(), ts: new Date().toISOString(), actor,
+        type: "checklist_delete", period: periodKey, fy: activeFY, stage: stageName, item: deletedItem?.label||"" };
+      const final = { ...updated, auditLog: [entry, ...(updated.auditLog||[])] };
+      setClients(clients => clients.map(c => c.id===clientId ? final : c));
+      setSelected(final);
+      await persistClient(final);
+    }
   };
 
   const filtered = clients.filter(c => {
@@ -406,6 +460,7 @@ export default function Tracker({ session }) {
               onDeleteChecklistItem={handleDeleteChecklistItem}
               onAddCommLog={handleAddCommLog}
               onDeleteCommLog={handleDeleteCommLog}
+              onAudit={recordAudit}
             />
           )}
         </div>
@@ -426,8 +481,9 @@ export default function Tracker({ session }) {
 
 // ── Detail View ───────────────────────────────────────────────────────────────
 
-function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, onDelete, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAddCommLog, onDeleteCommLog }) {
+function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, onDelete, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAddCommLog, onDeleteCommLog, onAudit }) {
   const [confirmDel, setConfirmDel] = useState(false);
+  const [showAudit,  setShowAudit]  = useState(false);
   const periods    = periodsForClient(client);
   const fyData     = client.periods?.[activeFY] || {};
   const periodData = fyData[activePeriod] || emptyPeriod();
@@ -456,6 +512,7 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
           </div>
         </div>
         <div style={{display:"flex",gap:6}}>
+          <button className="btn-g" onClick={()=>setShowAudit(!showAudit)}>🕓 History</button>
           <button className="btn-g" onClick={onEdit}>✏ Edit</button>
           {!confirmDel
             ? <button className="btn-d" onClick={()=>setConfirmDel(true)}>🗑 Delete</button>
@@ -546,6 +603,7 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
               onAddChecklistItem={onAddChecklistItem}
               onChecklistItemUpdate={onChecklistItemUpdate}
               onDeleteChecklistItem={onDeleteChecklistItem}
+              onAudit={onAudit}
             />
           ))}
         </div>
@@ -558,13 +616,18 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
         onAdd={onAddCommLog}
         onDelete={onDeleteCommLog}
       />
+
+      {/* Audit Log */}
+      {showAudit && (
+        <AuditLog entries={client.auditLog||[]} />
+      )}
     </div>
   );
 }
 
 // ── Stage Block ───────────────────────────────────────────────────────────────
 
-function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem }) {
+function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAudit }) {
   const [expanded,     setExpanded]     = useState(false);
   const [newItemLabel, setNewItemLabel] = useState("");
   const val     = stageData.status || "Pending";
@@ -620,6 +683,7 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
               <input className="inp" placeholder="e.g. Jay"
                 value={stageData.doneBy||""}
                 onChange={e=>onStageUpdate(clientId,periodKey,stage.key,"doneBy",e.target.value)}
+                onBlur={e=>onAudit(clientId,{type:"field",period:periodKey,stage:stage.label,field:"Done By",to:e.target.value})}
                 style={{fontSize:12}}/>
             </div>
             <div>
@@ -627,6 +691,7 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
               <input className="inp" type="date"
                 value={stageData.doneDate||""}
                 onChange={e=>onStageUpdate(clientId,periodKey,stage.key,"doneDate",e.target.value)}
+                onBlur={e=>onAudit(clientId,{type:"field",period:periodKey,stage:stage.label,field:"Done Date",to:e.target.value})}
                 style={{fontSize:12,colorScheme:"dark"}}/>
             </div>
           </div>
@@ -637,6 +702,7 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
             <textarea className="inp" placeholder="e.g. Purchase received. Office expenses file pending."
               value={stageData.remarks||""}
               onChange={e=>onStageUpdate(clientId,periodKey,stage.key,"remarks",e.target.value)}
+              onBlur={e=>e.target.value&&onAudit(clientId,{type:"field",period:periodKey,stage:stage.label,field:"Remarks",to:e.target.value})}
               rows={2} style={{fontSize:12,resize:"vertical"}}/>
           </div>
 
@@ -771,6 +837,49 @@ function CommunicationLog({ clientId, entries, onAdd, onDelete }) {
               : <button onClick={()=>setConfirmId(entry.id)}
                   style={{background:"transparent",border:"none",color:"#334155",cursor:"pointer",fontSize:14,padding:"0 2px",flexShrink:0}}>✕</button>
             }
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+
+function AuditLog({ entries }) {
+  const fmt = (ts) => {
+    const d = new Date(ts);
+    return d.toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" }) +
+      " " + d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true });
+  };
+
+  const describe = (e) => {
+    if (e.type === "status")         return `${e.stage} [${e.period}] changed from "${e.from}" → "${e.to}"`;
+    if (e.type === "field")          return `${e.stage} [${e.period}] — ${e.field} set to "${e.to}"`;
+    if (e.type === "checklist_add")  return `${e.stage} [${e.period}] — checklist item added: "${e.item}"`;
+    if (e.type === "checklist_delete") return `${e.stage} [${e.period}] — checklist item removed: "${e.item}"`;
+    return JSON.stringify(e);
+  };
+
+  return (
+    <div className="card" style={{padding:18,marginTop:14}}>
+      <div className="lbl" style={{color:"#2563EB",marginBottom:14}}>🕓 Audit Trail</div>
+      {entries.length === 0 && (
+        <div style={{fontSize:12,color:"#334155",fontStyle:"italic",textAlign:"center",padding:"14px 0"}}>
+          No changes recorded yet.
+        </div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:340,overflowY:"auto"}}>
+        {entries.map(e => (
+          <div key={e.id} style={{display:"flex",gap:12,padding:"9px 12px",background:"#06080F",borderRadius:7,border:"1px solid #1E293B",alignItems:"flex-start"}}>
+            <div style={{width:7,height:7,borderRadius:"50%",background:"#475569",flexShrink:0,marginTop:5}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,color:"#CBD5E1"}}>{describe(e)}</div>
+              <div style={{display:"flex",gap:12,marginTop:4}}>
+                <span style={{fontSize:10,color:"#334155"}}>👤 {e.actor}</span>
+                <span style={{fontSize:10,color:"#334155"}}>🕓 {fmt(e.ts)}</span>
+              </div>
+            </div>
           </div>
         ))}
       </div>
