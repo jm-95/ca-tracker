@@ -92,7 +92,7 @@ export default function Tracker({ session }) {
   const [clients,      setClients]      = useState([]);
   const [loaded,       setLoaded]       = useState(false);
   const [selected,     setSelected]     = useState(null);
-  const [view,         setView]         = useState("list");
+  const [view,         setView]         = useState("dashboard");
   const [editClient,   setEditClient]   = useState(null);
   const [activeFY,     setActiveFY]     = useState(currentFY());
   const [activePeriod, setActivePeriod] = useState(null);
@@ -386,13 +386,14 @@ export default function Tracker({ session }) {
         <div style={{display:"flex",alignItems:"center",gap:6}}>
           {fyList().map(fy=>(
             <button key={fy} className={`fy-btn${activeFY===fy?" act":""}`}
-              onClick={()=>{setActiveFY(fy);setView("list");setSelected(null);}}>
+              onClick={()=>{setActiveFY(fy);setView("dashboard");setSelected(null);}}>
               {fy}
             </button>
           ))}
           <div style={{width:1,height:18,background:"#1E293B",margin:"0 4px"}}/>
           <span style={{fontSize:11,color:"#334155"}}>{session.user.email}</span>
           <button className="btn-g" style={{padding:"6px 12px",fontSize:12}} onClick={async()=>await supabase.auth.signOut()}>Sign out</button>
+          <button className={`fy-btn${view==="dashboard"?" act":""}`} onClick={()=>{setView("dashboard");setSelected(null);}}>📊 Dashboard</button>
           <button className="btn-p" onClick={()=>{setEditClient(newClient());setView("form");}}>+ Add Client</button>
         </div>
       </div>
@@ -441,6 +442,18 @@ export default function Tracker({ session }) {
 
         {/* Main panel */}
         <div style={{flex:1,overflowY:"auto",padding:22}}>
+          {view==="dashboard" && (
+            <Dashboard
+              clients={clients}
+              activeFY={activeFY}
+              onSelectClient={(c, period) => {
+                const filled = ensurePeriods(c, activeFY);
+                setSelected(filled);
+                setActivePeriod(period);
+                setView("detail");
+              }}
+            />
+          )}
           {view==="list" && (
             <div style={{height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
               <div style={{fontSize:42}}>👈</div>
@@ -746,6 +759,149 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
               </div>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+function Dashboard({ clients, activeFY, onSelectClient }) {
+  const now        = new Date();
+  const nowMonth   = now.getMonth(); // 0-11
+  // Current period key for monthly clients
+  const curMonthIdx = nowMonth >= 3 ? nowMonth - 3 : nowMonth + 9;
+  const curMonthKey = MONTHS[curMonthIdx];
+
+  // Build list of open rows: { client, periodKey, periodData }
+  const openRows = [];
+  clients.forEach(client => {
+    const periods  = periodsForClient(client);
+    const fyData   = client.periods?.[activeFY] || {};
+    periods.forEach(p => {
+      const pd  = fyData[p.key];
+      const ost = overallStatus(pd);
+      if (ost === "Done") return; // fully done — skip
+      // For monthly clients, only show up to current month
+      if (client.frequency === "Monthly") {
+        const idx = MONTHS.indexOf(p.key);
+        if (idx > curMonthIdx) return; // future month — skip
+      }
+      openRows.push({ client, periodKey: p.key, periodData: pd || {} });
+    });
+  });
+
+  // Sort: oldest period first, then by client name
+  openRows.sort((a, b) => {
+    const ai = MONTHS.indexOf(a.periodKey);
+    const bi = MONTHS.indexOf(b.periodKey);
+    if (ai !== bi) return ai - bi;
+    return a.client.name.localeCompare(b.client.name);
+  });
+
+  // Summary cards
+  const allClients   = clients.length;
+  const fullyDone    = clients.filter(c => {
+    const periods = periodsForClient(c);
+    const fyData  = c.periods?.[activeFY] || {};
+    return periods.every(p => overallStatus(fyData[p.key]) === "Done");
+  }).length;
+  const notStarted   = clients.filter(c => {
+    const periods = periodsForClient(c);
+    const fyData  = c.periods?.[activeFY] || {};
+    const allV    = periods.flatMap(p => STAGES.map(s => fyData[p.key]?.[s.key]?.status || "Pending"));
+    return allV.every(v => v === "Pending");
+  }).length;
+  const inProgress   = allClients - fullyDone - notStarted;
+  const overallPct   = allClients === 0 ? 0 : Math.round((fullyDone / allClients) * 100);
+
+  const SUMMARY_CARDS = [
+    { label:"Total Clients",  value: allClients,  color:"#2563EB", bg:"#1E3A5F33", border:"#1E3A5F" },
+    { label:"Fully Done",     value: fullyDone,   color:"#22C55E", bg:"#052E1633", border:"#166534" },
+    { label:"In Progress",    value: inProgress,  color:"#3B82F6", bg:"#0C234033", border:"#1E40AF" },
+    { label:"Not Started",    value: notStarted,  color:"#F59E0B", bg:"#2A1A0533", border:"#92400E" },
+    { label:"Overall",        value: `${overallPct}%`, color:"#06B6D4", bg:"#06080F", border:"#164E63" },
+  ];
+
+  return (
+    <div>
+      <div style={{marginBottom:20}}>
+        <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:20,fontWeight:700,color:"#F1F5F9",marginBottom:4}}>
+          Dashboard
+        </h2>
+        <div style={{fontSize:12,color:"#475569"}}>Open work across all clients — {activeFY}</div>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginBottom:22}}>
+        {SUMMARY_CARDS.map(card => (
+          <div key={card.label} style={{background:card.bg,border:`1px solid ${card.border}`,borderRadius:12,padding:"14px 16px"}}>
+            <div style={{fontSize:24,fontWeight:700,color:card.color,marginBottom:4}}>{card.value}</div>
+            <div style={{fontSize:11,color:"#475569",fontWeight:600,textTransform:"uppercase",letterSpacing:".7px"}}>{card.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Open work table */}
+      {openRows.length === 0 ? (
+        <div className="card" style={{padding:40,textAlign:"center"}}>
+          <div style={{fontSize:32,marginBottom:10}}>🎉</div>
+          <div style={{fontSize:14,fontWeight:600,color:"#22C55E"}}>All caught up!</div>
+          <div style={{fontSize:12,color:"#334155",marginTop:4}}>No pending work for {activeFY}</div>
+        </div>
+      ) : (
+        <div className="card" style={{overflow:"hidden"}}>
+          {/* Table header */}
+          <div style={{display:"grid",gridTemplateColumns:`220px 80px repeat(${STAGES.length},1fr)`,background:"#06080F",borderBottom:"1px solid #1E293B",padding:"9px 14px",gap:6}}>
+            <div className="lbl" style={{margin:0}}>Client</div>
+            <div className="lbl" style={{margin:0}}>Period</div>
+            {STAGES.map(s => (
+              <div key={s.key} className="lbl" style={{margin:0,textAlign:"center",fontSize:9}}>{s.label}</div>
+            ))}
+          </div>
+
+          {/* Table rows */}
+          <div style={{maxHeight:"calc(100vh - 320px)",overflowY:"auto"}}>
+            {openRows.map((row, i) => {
+              const avBg = ["#1E3A5F","#1C3B2C","#3B1D6E","#4A1942","#2D1B00","#1A2E4A"][row.client.name.charCodeAt(0)%6];
+              const initials = row.client.name.split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
+              return (
+                <div key={`${row.client.id}-${row.periodKey}`}
+                  onClick={()=>onSelectClient(row.client, row.periodKey)}
+                  style={{display:"grid",gridTemplateColumns:`220px 80px repeat(${STAGES.length},1fr)`,padding:"10px 14px",gap:6,borderBottom:"1px solid #0F172A",cursor:"pointer",transition:"background .14s",alignItems:"center"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="#111827"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  {/* Client name */}
+                  <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                    <div style={{width:28,height:28,borderRadius:7,background:avBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{initials}</div>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:"#F1F5F9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.client.name}</div>
+                      <div style={{fontSize:10,color:"#334155"}}>{row.client.entity}</div>
+                    </div>
+                  </div>
+                  {/* Period */}
+                  <div style={{fontSize:11,fontWeight:600,color:"#475569"}}>{row.periodKey}</div>
+                  {/* Stage cells */}
+                  {STAGES.map(s => {
+                    const st  = row.periodData[s.key]?.status || "Pending";
+                    const ss  = STATUS_STYLES[st];
+                    return (
+                      <div key={s.key} style={{display:"flex",justifyContent:"center"}}>
+                        <div style={{padding:"3px 8px",borderRadius:5,background:ss.bg,border:`1px solid ${ss.border}`,color:ss.color,fontSize:10,fontWeight:600,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4}}>
+                          <span style={{width:5,height:5,borderRadius:"50%",background:ss.dot,flexShrink:0}}/>
+                          {st}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{padding:"9px 14px",borderTop:"1px solid #1E293B",background:"#06080F"}}>
+            <span style={{fontSize:11,color:"#334155"}}>{openRows.length} open period{openRows.length!==1?"s":""} across {[...new Set(openRows.map(r=>r.client.id))].length} client{[...new Set(openRows.map(r=>r.client.id))].length!==1?"s":""}</span>
+          </div>
         </div>
       )}
     </div>
