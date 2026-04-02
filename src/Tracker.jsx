@@ -18,7 +18,7 @@ const MONTH_FULL     = ["April","May","June","July","August","September","Octobe
 const QUARTERS       = ["Q1 (Apr–Jun)","Q2 (Jul–Sep)","Q3 (Oct–Dec)","Q4 (Jan–Mar)"];
 
 function fyList() {
-  const list = [];
+  const list = ["FY 2025-26"];
   for (let y = 2026; y <= 2030; y++) list.push(`FY ${y}-${String(y+1).slice(2)}`);
   return list;
 }
@@ -352,7 +352,35 @@ export default function Tracker({ session }) {
     }
   };
 
-  const handleChecklistItemUpdate = async (clientId, periodKey, stageKey, itemId, field, value) => {
+  const handleBulkMarkNA = async (clientId) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    const periods = periodsForClient(client);
+    const updated = applyUpdate(clientId, c => {
+      const fyData = { ...(c.periods?.[activeFY] || {}) };
+      periods.forEach(p => {
+        const pd = fyData[p.key];
+        // Only touch periods that are completely untouched — no doneBy, doneDate, remarks, checklist activity
+        const isUntouched = STAGES.every(s => {
+          const sd = pd?.[s.key];
+          if (!sd) return true;
+          return !sd.doneBy && !sd.doneDate && !sd.remarks &&
+            (!sd.checklist || sd.checklist.every(i => i.status === "Pending" && !i.doneBy && !i.doneDate));
+        });
+        const ost = overallStatus(pd);
+        if (isUntouched && ost !== "Done") {
+          fyData[p.key] = Object.fromEntries(
+            STAGES.map(s => [s.key, { ...(pd?.[s.key] || emptyStageData(s.key)), status: "N/A" }])
+          );
+        }
+      });
+      return { ...c, periods: { ...c.periods, [activeFY]: fyData } };
+    });
+    if (updated) {
+      await persistClient(updated);
+      toast$("Empty periods marked as N/A.");
+    }
+  };
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
     const existing = client.periods?.[activeFY]?.[periodKey]?.[stageKey]?.checklist || [];
@@ -679,8 +707,15 @@ export default function Tracker({ session }) {
               client={selected} activeFY={activeFY}
               activePeriod={activePeriod} setActivePeriod={setActivePeriod}
               th={th}
+              isPastFY={(() => {
+                const fyStartYear = parseInt(activeFY.split(" ")[1].split("-")[0]);
+                const now = new Date();
+                const curStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+                return fyStartYear < curStart;
+              })()}
               onEdit={()=>{setEditClient({...selected});setView("form");}}
               onDelete={()=>handleDelete(selected.id)}
+              onBulkMarkNA={()=>handleBulkMarkNA(selected.id)}
               onStageUpdate={handleStageUpdate}
               onAddChecklistItem={handleAddChecklistItem}
               onChecklistItemUpdate={handleChecklistItemUpdate}
@@ -714,9 +749,10 @@ export default function Tracker({ session }) {
 
 // ── Detail View ───────────────────────────────────────────────────────────────
 
-function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdit, onDelete, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onEditChecklistItem, onReorderChecklistItems, onDeleteChecklistItem, onAddCommLog, onDeleteCommLog, onAudit }) {
-  const [confirmDel, setConfirmDel] = useState(false);
-  const [showAudit,  setShowAudit]  = useState(false);
+function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, isPastFY, onEdit, onDelete, onBulkMarkNA, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onEditChecklistItem, onReorderChecklistItems, onDeleteChecklistItem, onAddCommLog, onDeleteCommLog, onAudit }) {
+  const [confirmDel,    setConfirmDel]    = useState(false);
+  const [showAudit,     setShowAudit]     = useState(false);
+  const [confirmBulkNA, setConfirmBulkNA] = useState(false);
   const periods    = periodsForClient(client);
   const fyData     = client.periods?.[activeFY] || {};
   const periodData = fyData[activePeriod] || emptyPeriod();
@@ -745,7 +781,26 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
             </div>
           </div>
         </div>
-        <div style={{display:"flex",gap:6}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          {isPastFY && !confirmBulkNA && (
+            <button onClick={()=>setConfirmBulkNA(true)}
+              style={{background:th.bgCard,color:th.textFaint,border:`1px solid ${th.border}`,borderRadius:8,padding:"8px 14px",fontFamily:"'DM Sans',sans-serif",fontSize:13,cursor:"pointer",transition:"all .18s"}}>
+              🧹 Mark Empty N/A
+            </button>
+          )}
+          {isPastFY && confirmBulkNA && (
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <span style={{fontSize:11,color:th.textFaint}}>Mark all untouched periods as N/A?</span>
+              <button onClick={()=>{onBulkMarkNA();setConfirmBulkNA(false);}}
+                style={{background:th.accent,color:"#fff",border:"none",borderRadius:7,padding:"6px 12px",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                Confirm
+              </button>
+              <button onClick={()=>setConfirmBulkNA(false)}
+                style={{background:"transparent",color:th.textFaint,border:`1px solid ${th.border}`,borderRadius:7,padding:"6px 12px",fontFamily:"'DM Sans',sans-serif",fontSize:12,cursor:"pointer"}}>
+                Cancel
+              </button>
+            </div>
+          )}
           <button className="btn-g" onClick={()=>setShowAudit(!showAudit)}>🕓 History</button>
           <button className="btn-g" onClick={onEdit}>✏ Edit</button>
           {!confirmDel
@@ -873,19 +928,55 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
 // ── Stage Block ───────────────────────────────────────────────────────────────
 
 function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onEditChecklistItem, onReorderChecklistItems, onDeleteChecklistItem, onAudit }) {
-  const [expanded,     setExpanded]     = useState(false);
-  const [newItemLabel, setNewItemLabel] = useState("");
-  const [addScope,     setAddScope]     = useState(null);
-  const [deleteScope,  setDeleteScope]  = useState(null);
-  const [editScope,    setEditScope]    = useState(null);   // { itemId, oldLabel, newLabel }
-  const [editingId,    setEditingId]    = useState(null);   // which item is in edit mode
-  const [editValue,    setEditValue]    = useState("");
-  const [reorderScope, setReorderScope] = useState(null);  // { newOrder }
-  const [dragOverId,   setDragOverId]   = useState(null);
+  const [expanded,       setExpanded]       = useState(false);
+  const [newItemLabel,   setNewItemLabel]   = useState("");
+  const [addScope,       setAddScope]       = useState(null);
+  const [deleteScope,    setDeleteScope]    = useState(null);
+  const [editScope,      setEditScope]      = useState(null);
+  const [editingId,      setEditingId]      = useState(null);
+  const [editValue,      setEditValue]      = useState("");
+  const [reorderScope,   setReorderScope]   = useState(null);
+  const [dragOverId,     setDragOverId]     = useState(null);
+  const [blockError,     setBlockError]     = useState(null);   // hard block message
+  const [pendingWarn,    setPendingWarn]    = useState(null);   // { items: [], onConfirm }
 
   const val     = stageData.status || "Pending";
   const ss      = th.statusStyles[val];
   const hasData = stageData.doneBy || stageData.doneDate || stageData.remarks || (stageData.checklist?.length > 0);
+
+  // ── Status click with Done validation ──
+  const handleStatusClick = (opt) => {
+    if (opt !== "Done") {
+      setBlockError(null); setPendingWarn(null);
+      onStageUpdate(clientId, periodKey, stage.key, "status", opt);
+      return;
+    }
+    // Hard block — Done By or Done Date missing
+    const missingFields = [];
+    if (!stageData.doneBy?.trim())   missingFields.push("Done By");
+    if (!stageData.doneDate?.trim()) missingFields.push("Done Date");
+    if (missingFields.length > 0) {
+      setBlockError(`Please fill ${missingFields.join(" and ")} before marking as Done.`);
+      if (!expanded) setExpanded(true);
+      return;
+    }
+    setBlockError(null);
+    // Soft warning — pending checklist items
+    const pendingItems = (stageData.checklist || []).filter(
+      i => i.status === "Pending" || (!i.status)
+    );
+    if (pendingItems.length > 0) {
+      setPendingWarn({
+        items: pendingItems,
+        onConfirm: () => {
+          onStageUpdate(clientId, periodKey, stage.key, "status", "Done");
+          setPendingWarn(null);
+        }
+      });
+      return;
+    }
+    onStageUpdate(clientId, periodKey, stage.key, "status", "Done");
+  };
 
   // ── Add ──
   const requestAdd = () => {
@@ -982,7 +1073,7 @@ function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, 
         <div style={{display:"flex",gap:4}}>
           {STATUS_OPTIONS.map(opt=>(
             <button key={opt} className="spill"
-              onClick={()=>onStageUpdate(clientId,periodKey,stage.key,"status",opt)}
+              onClick={()=>handleStatusClick(opt)}
               style={{background:val===opt?th.statusStyles[opt].bg:"transparent",color:val===opt?th.statusStyles[opt].color:th.textFaintest,border:val===opt?`1px solid ${th.statusStyles[opt].border}`:`1px solid ${th.border}`}}>
               {opt}
             </button>
@@ -993,6 +1084,37 @@ function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, 
           {expanded?"▲":"▼"}
         </button>
       </div>
+
+      {/* Hard block error */}
+      {blockError && (
+        <div style={{margin:"0 13px 10px",padding:"9px 13px",background:th.toastErr,border:`1px solid ${th.toastErrTxt}44`,borderRadius:7,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <span style={{fontSize:12,color:th.toastErrTxt,fontWeight:500}}>⚠ {blockError}</span>
+          <button onClick={()=>setBlockError(null)} style={{background:"transparent",border:"none",color:th.toastErrTxt,cursor:"pointer",fontSize:14,padding:0,lineHeight:1}}>✕</button>
+        </div>
+      )}
+
+      {/* Soft warning — pending checklist items */}
+      {pendingWarn && (
+        <div style={{margin:"0 13px 10px",padding:"12px 14px",background:th.bgCard,border:`1px solid ${th.accent}`,borderRadius:8,display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{fontSize:12,color:th.textMuted,fontWeight:600}}>⚠ The following checklist items are still pending:</div>
+          <ul style={{paddingLeft:18,display:"flex",flexDirection:"column",gap:4}}>
+            {pendingWarn.items.map(i=>(
+              <li key={i.id} style={{fontSize:12,color:th.textFaint}}>{i.label}</li>
+            ))}
+          </ul>
+          <div style={{fontSize:11,color:th.textFaint}}>Do you want to mark this stage as Done anyway?</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={pendingWarn.onConfirm}
+              style={{background:th.accent,color:"#fff",border:"none",borderRadius:7,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+              Mark Done Anyway
+            </button>
+            <button onClick={()=>setPendingWarn(null)}
+              style={{background:"transparent",color:th.textMuted,border:`1px solid ${th.border}`,borderRadius:7,padding:"6px 14px",fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+              Go Back
+            </button>
+          </div>
+        </div>
+      )}
 
       {!expanded && hasData && (
         <div style={{padding:"0 13px 10px 51px",display:"flex",gap:14,flexWrap:"wrap"}}>
