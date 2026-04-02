@@ -381,6 +381,8 @@ export default function Tracker({ session }) {
       toast$("Empty periods marked as N/A.");
     }
   };
+
+  const handleChecklistItemUpdate = async (clientId, periodKey, stageKey, itemId, field, value) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
     const existing = client.periods?.[activeFY]?.[periodKey]?.[stageKey]?.checklist || [];
