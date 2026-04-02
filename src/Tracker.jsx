@@ -296,15 +296,21 @@ export default function Tracker({ session }) {
     }
   };
 
-  const handleAddChecklistItem = async (clientId, periodKey, stageKey, label) => {
+  const handleAddChecklistItem = async (clientId, periodKey, stageKey, label, scope) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
     const newItem = { id: Date.now().toString(), label, status:"Pending", doneBy:"", doneDate:"" };
     const allPeriods = periodsForClient(client);
-    // Add to ALL periods in this FY — each gets a fresh Pending copy
+
+    // Determine which periods to add to based on scope
+    const currentIdx = allPeriods.findIndex(p => p.key === periodKey);
+    const targetPeriods = scope === "all"
+      ? allPeriods.slice(currentIdx)       // current + all future
+      : allPeriods.slice(currentIdx, currentIdx + 1); // this period only
+
     const updated = applyUpdate(clientId, c => {
       const fyData = { ...c.periods?.[activeFY] };
-      allPeriods.forEach(p => {
+      targetPeriods.forEach(p => {
         const existing = fyData[p.key]?.[stageKey]?.checklist || [];
         const alreadyExists = existing.some(i => i.id === newItem.id);
         if (!alreadyExists) {
@@ -324,8 +330,9 @@ export default function Tracker({ session }) {
       const email = session?.user?.email || "";
       const actor = email.split("@")[0];
       const stageName = STAGES.find(s => s.key === stageKey)?.label || stageKey;
+      const scopeNote = scope === "all" ? " (all future periods)" : " (this period only)";
       const entry = { id: Date.now().toString(), ts: new Date().toISOString(), actor,
-        type: "checklist_add", period: periodKey, fy: activeFY, stage: stageName, item: label };
+        type: "checklist_add", period: periodKey, fy: activeFY, stage: stageName, item: label + scopeNote };
       const final = { ...updated, auditLog: [entry, ...(updated.auditLog||[])] };
       setClients(clients => clients.map(c => c.id===clientId ? final : c));
       setSelected(final);
@@ -348,19 +355,44 @@ export default function Tracker({ session }) {
     if (updated) await persistClient(updated);
   };
 
-  const handleDeleteChecklistItem = async (clientId, periodKey, stageKey, itemId) => {
+  const handleDeleteChecklistItem = async (clientId, periodKey, stageKey, itemId, scope) => {
     const client = clients.find(c => c.id === clientId);
     if (!client) return;
-    const existing = client.periods?.[activeFY]?.[periodKey]?.[stageKey]?.checklist || [];
-    const newList  = existing.filter(item => item.id !== itemId);
-    const updated  = applyUpdate(clientId, c => ({
-      ...c, periods: { ...c.periods, [activeFY]: { ...c.periods?.[activeFY],
-        [periodKey]: { ...c.periods?.[activeFY]?.[periodKey],
-          [stageKey]: { ...c.periods?.[activeFY]?.[periodKey]?.[stageKey], checklist: newList }
-        }
-      }}
-    }));
-    if (updated) await persistClient(updated);
+    const allPeriods = periodsForClient(client);
+    const currentIdx = allPeriods.findIndex(p => p.key === periodKey);
+    const targetPeriods = scope === "all"
+      ? allPeriods.slice(currentIdx)
+      : allPeriods.slice(currentIdx, currentIdx + 1);
+
+    const deletedLabel = (client.periods?.[activeFY]?.[periodKey]?.[stageKey]?.checklist||[]).find(i=>i.id===itemId)?.label || "";
+
+    const updated = applyUpdate(clientId, c => {
+      const fyData = { ...c.periods?.[activeFY] };
+      targetPeriods.forEach(p => {
+        const existing = fyData[p.key]?.[stageKey]?.checklist || [];
+        fyData[p.key] = {
+          ...fyData[p.key],
+          [stageKey]: {
+            ...fyData[p.key]?.[stageKey],
+            checklist: existing.filter(item => item.id !== itemId)
+          }
+        };
+      });
+      return { ...c, periods: { ...c.periods, [activeFY]: fyData } };
+    });
+    if (updated) {
+      await persistClient(updated);
+      const email = session?.user?.email || "";
+      const actor = email.split("@")[0];
+      const stageName = STAGES.find(s => s.key === stageKey)?.label || stageKey;
+      const scopeNote = scope === "all" ? " (all future periods)" : " (this period only)";
+      const entry = { id: Date.now().toString(), ts: new Date().toISOString(), actor,
+        type: "checklist_delete", period: periodKey, fy: activeFY, stage: stageName, item: deletedLabel + scopeNote };
+      const final = { ...updated, auditLog: [entry, ...(updated.auditLog||[])] };
+      setClients(clients => clients.map(c => c.id===clientId ? final : c));
+      setSelected(final);
+      await persistClient(final);
+    }
   };
 
   // ── Audit Trail ──────────────────────────────────────────────────────────────
@@ -754,15 +786,54 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
 function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAudit }) {
   const [expanded,     setExpanded]     = useState(false);
   const [newItemLabel, setNewItemLabel] = useState("");
+  const [addScope,     setAddScope]     = useState(null);   // null | { label }
+  const [deleteScope,  setDeleteScope]  = useState(null);   // null | { itemId, label }
   const val     = stageData.status || "Pending";
   const ss      = th.statusStyles[val];
   const hasData = stageData.doneBy || stageData.doneDate || stageData.remarks || (stageData.checklist?.length > 0);
 
-  const addItem = () => {
+  const requestAdd = () => {
     if (!newItemLabel.trim()) return;
-    onAddChecklistItem(clientId, periodKey, stage.key, newItemLabel.trim());
-    setNewItemLabel("");
+    setAddScope({ label: newItemLabel.trim() });
   };
+
+  const confirmAdd = (scope) => {
+    onAddChecklistItem(clientId, periodKey, stage.key, addScope.label, scope);
+    setNewItemLabel("");
+    setAddScope(null);
+  };
+
+  const requestDelete = (itemId, label) => {
+    setDeleteScope({ itemId, label });
+  };
+
+  const confirmDelete = (scope) => {
+    onDeleteChecklistItem(clientId, periodKey, stage.key, deleteScope.itemId, scope);
+    setDeleteScope(null);
+  };
+
+  // Shared inline scope picker styles
+  const scopeBox = (onThis, onAll, onCancel, label, th) => (
+    <div style={{background:th.bgCard,border:`1px solid ${th.accent}`,borderRadius:8,padding:"10px 12px",marginBottom:6,display:"flex",flexDirection:"column",gap:8}}>
+      <div style={{fontSize:11,color:th.textMuted,fontWeight:600}}>
+        {label}
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        <button onClick={onThis}
+          style={{background:th.bgStage,border:`1px solid ${th.border}`,borderRadius:6,padding:"4px 12px",fontSize:11,fontWeight:600,color:th.textMuted,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+          This period only
+        </button>
+        <button onClick={onAll}
+          style={{background:th.accent,border:`1px solid ${th.accent}`,borderRadius:6,padding:"4px 12px",fontSize:11,fontWeight:600,color:"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+          This + all future periods
+        </button>
+        <button onClick={onCancel}
+          style={{background:"transparent",border:"none",fontSize:11,color:th.textFaintest,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",padding:"4px 6px"}}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div className={`stage-block${hasData?" active-border":""}`}>
@@ -829,34 +900,54 @@ function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, 
               )}
               <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                 {(stageData.checklist||[]).map(item=>(
-                  <div key={item.id} className="checklist-row">
-                    <div onClick={()=>{
-                        const next=item.status==="Pending"?"Done":item.status==="Done"?"N/A":"Pending";
-                        onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"status",next);
-                      }}
-                      style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${th.statusStyles[item.status||"Pending"].dot}`,background:item.status==="Done"?th.statusStyles["Done"].dot:item.status==="N/A"?th.statusStyles["N/A"].dot:"transparent",cursor:"pointer",flexShrink:0,transition:"all .14s"}}
-                    />
-                    <span style={{flex:1,fontSize:12,color:item.status==="Done"?th.textFaintest:th.textMuted,textDecoration:item.status==="Done"?"line-through":"none"}}>{item.label}</span>
-                    <input className="inp-sm" placeholder="Done by"
-                      value={item.doneBy||""}
-                      onChange={e=>onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"doneBy",e.target.value)}
-                      style={{width:88}}/>
-                    <input className="inp-sm" type="date"
-                      value={item.doneDate||""}
-                      onChange={e=>onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"doneDate",e.target.value)}
-                      style={{width:130}}/>
-                    <button onClick={()=>onDeleteChecklistItem(clientId,periodKey,stage.key,item.id)}
-                      style={{background:"transparent",border:"none",color:th.textFaintest,cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}}>✕</button>
+                  <div key={item.id}>
+                    {/* Delete scope picker for this item */}
+                    {deleteScope?.itemId === item.id && scopeBox(
+                      () => confirmDelete("this"),
+                      () => confirmDelete("all"),
+                      () => setDeleteScope(null),
+                      `Remove "${item.label}" from:`,
+                      th
+                    )}
+                    <div className="checklist-row">
+                      <div onClick={()=>{
+                          const next=item.status==="Pending"?"Done":item.status==="Done"?"N/A":"Pending";
+                          onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"status",next);
+                        }}
+                        style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${th.statusStyles[item.status||"Pending"].dot}`,background:item.status==="Done"?th.statusStyles["Done"].dot:item.status==="N/A"?th.statusStyles["N/A"].dot:"transparent",cursor:"pointer",flexShrink:0,transition:"all .14s"}}
+                      />
+                      <span style={{flex:1,fontSize:12,color:item.status==="Done"?th.textFaintest:th.textMuted,textDecoration:item.status==="Done"?"line-through":"none"}}>{item.label}</span>
+                      <input className="inp-sm" placeholder="Done by"
+                        value={item.doneBy||""}
+                        onChange={e=>onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"doneBy",e.target.value)}
+                        style={{width:88}}/>
+                      <input className="inp-sm" type="date"
+                        value={item.doneDate||""}
+                        onChange={e=>onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"doneDate",e.target.value)}
+                        style={{width:130}}/>
+                      <button onClick={()=>deleteScope?.itemId===item.id ? setDeleteScope(null) : requestDelete(item.id, item.label)}
+                        style={{background:"transparent",border:"none",color:deleteScope?.itemId===item.id?th.accent:th.textFaintest,cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}}>✕</button>
+                    </div>
                   </div>
                 ))}
               </div>
+
+              {/* Add scope picker */}
+              {addScope && scopeBox(
+                () => confirmAdd("this"),
+                () => confirmAdd("all"),
+                () => setAddScope(null),
+                `Add "${addScope.label}" to:`,
+                th
+              )}
+
               <div style={{display:"flex",gap:8}}>
                 <input className="inp" placeholder="Add a checklist item…"
                   value={newItemLabel}
                   onChange={e=>setNewItemLabel(e.target.value)}
-                  onKeyDown={e=>e.key==="Enter"&&addItem()}
+                  onKeyDown={e=>e.key==="Enter"&&requestAdd()}
                   style={{fontSize:12}}/>
-                <button className="btn-p" onClick={addItem} style={{whiteSpace:"nowrap",padding:"7px 14px",fontSize:12}}>+ Add</button>
+                <button className="btn-p" onClick={requestAdd} style={{whiteSpace:"nowrap",padding:"7px 14px",fontSize:12}}>+ Add</button>
               </div>
             </div>
           )}
@@ -938,9 +1029,15 @@ function Dashboard({ clients, activeFY, th, onSelectClient }) {
   const nowMonthIdx = now.getMonth() >= 3 ? now.getMonth()-3 : now.getMonth()+9;
   const curMonthKey = MONTHS[nowMonthIdx];
 
+  // Determine if activeFY is a past FY (already ended)
+  // FY ends in March, so "FY 2025-26" ended in Mar 2026
+  // activeFY format: "FY 2026-27" → start year 2026
+  const activeFYStartYear = parseInt(activeFY.split(" ")[1].split("-")[0]);
+  const currentFYStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  const isPastFY = activeFYStartYear < currentFYStartYear;
+
   // Current quarter key
   const curQuarterIdx = Math.floor(nowMonthIdx / 3);
-  const curQuarterKey = ["Q1 (Apr–Jun)","Q2 (Jul–Sep)","Q3 (Oct–Dec)","Q4 (Jan–Mar)"][curQuarterIdx];
 
   // Categorise rows
   const overdueMonthly=[], overdueQuarterly=[], overdueYearly=[];
@@ -958,18 +1055,19 @@ function Dashboard({ clients, activeFY, th, onSelectClient }) {
 
       if (client.frequency === "Monthly") {
         const idx = MONTHS.indexOf(p.key);
-        if (idx > nowMonthIdx) return; // future — skip
-        if (idx < nowMonthIdx) overdueMonthly.push(row);
+        if (!isPastFY && idx > nowMonthIdx) return; // future — skip
+        if (isPastFY || idx < nowMonthIdx) overdueMonthly.push(row);
         else currentMonthly.push(row);
       } else if (client.frequency === "Quarterly") {
         const qKeys = ["Q1 (Apr–Jun)","Q2 (Jul–Sep)","Q3 (Oct–Dec)","Q4 (Jan–Mar)"];
         const idx   = qKeys.indexOf(p.key);
-        if (idx > curQuarterIdx) return;
-        if (idx < curQuarterIdx) overdueQuarterly.push(row);
+        if (!isPastFY && idx > curQuarterIdx) return;
+        if (isPastFY || idx < curQuarterIdx) overdueQuarterly.push(row);
         else currentQuarterly.push(row);
       } else {
-        // Annually — always show if not done
-        overdueYearly.push(row);
+        // Annually — only show if this is a past FY
+        if (isPastFY) overdueYearly.push(row);
+        // During the active FY, yearly clients are hidden completely
       }
     });
   });
@@ -1004,12 +1102,13 @@ function Dashboard({ clients, activeFY, th, onSelectClient }) {
   const inProgress = allClients - fullyDone - notStarted;
   const pct = allClients===0?0:Math.round((fullyDone/allClients)*100);
 
+  // Fix 2: Theme-aware card definitions — no more hardcoded dark backgrounds
   const CARDS = [
-    { label:"Total Clients", value:allClients, color:"#2563EB", bg:"#1E3A5F33", border:"#1E3A5F" },
-    { label:"Fully Done",    value:fullyDone,  color:"#22C55E", bg:"#052E1633", border:"#166534" },
-    { label:"In Progress",   value:inProgress, color:"#3B82F6", bg:"#0C234033", border:"#1E40AF" },
-    { label:"Not Started",   value:notStarted, color:"#F59E0B", bg:"#2A1A0533", border:"#92400E" },
-    { label:"Overall",       value:`${pct}%`,  color:"#06B6D4", bg:"#06080F",   border:"#164E63" },
+    { label:"Total Clients", value:allClients, color:"#2563EB", bg:th.bgCard, border:th.border },
+    { label:"Fully Done",    value:fullyDone,  color:"#22C55E", bg:th.bgCard, border:th.border },
+    { label:"In Progress",   value:inProgress, color:"#3B82F6", bg:th.bgCard, border:th.border },
+    { label:"Not Started",   value:notStarted, color:"#F59E0B", bg:th.bgCard, border:th.border },
+    { label:"Overall",       value:`${pct}%`,  color:th.accent, bg:th.bgCard, border:th.accent },
   ];
 
   const allDone = totalOverdue===0 && totalCurrent===0;
@@ -1035,9 +1134,9 @@ function Dashboard({ clients, activeFY, th, onSelectClient }) {
       {/* Summary cards */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:11,marginBottom:22}}>
         {CARDS.map(c=>(
-          <div key={c.label} style={{background:c.bg,border:`1px solid ${c.border}`,borderRadius:12,padding:"13px 15px"}}>
+          <div key={c.label} style={{background:c.bg,border:`1px solid ${c.border}`,borderRadius:12,padding:"13px 15px",boxShadow:`0 1px 4px ${c.border}22`}}>
             <div style={{fontSize:22,fontWeight:700,color:c.color,marginBottom:3}}>{c.value}</div>
-            <div style={{fontSize:10,color:th.textFaint,fontWeight:600,textTransform:"uppercase",letterSpacing:".7px"}}>{c.label}</div>
+            <div style={{fontSize:10,color:th.textPrimary,fontWeight:700,textTransform:"uppercase",letterSpacing:".7px",opacity:.6}}>{c.label}</div>
           </div>
         ))}
       </div>
