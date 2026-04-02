@@ -407,6 +407,72 @@ export default function Tracker({ session }) {
     }
   };
 
+  const handleEditChecklistItem = async (clientId, periodKey, stageKey, itemId, newLabel, scope) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    const allPeriods = periodsForClient(client);
+    const currentIdx = allPeriods.findIndex(p => p.key === periodKey);
+    const targetPeriods = scope === "all"
+      ? allPeriods.slice(currentIdx)
+      : allPeriods.slice(currentIdx, currentIdx + 1);
+
+    const updated = applyUpdate(clientId, c => {
+      const fyData = { ...c.periods?.[activeFY] };
+      targetPeriods.forEach(p => {
+        const existing = fyData[p.key]?.[stageKey]?.checklist || [];
+        fyData[p.key] = {
+          ...fyData[p.key],
+          [stageKey]: {
+            ...fyData[p.key]?.[stageKey],
+            checklist: existing.map(item => item.id === itemId ? { ...item, label: newLabel } : item)
+          }
+        };
+      });
+      return { ...c, periods: { ...c.periods, [activeFY]: fyData } };
+    });
+    if (updated) {
+      await persistClient(updated);
+      const email = session?.user?.email || "";
+      const actor = email.split("@")[0];
+      const stageName = STAGES.find(s => s.key === stageKey)?.label || stageKey;
+      const scopeNote = scope === "all" ? " (all future periods)" : " (this period only)";
+      const entry = { id: Date.now().toString(), ts: new Date().toISOString(), actor,
+        type: "checklist_edit", period: periodKey, fy: activeFY, stage: stageName, item: `"${newLabel}"${scopeNote}` };
+      const final = { ...updated, auditLog: [entry, ...(updated.auditLog||[])] };
+      setClients(clients => clients.map(c => c.id===clientId ? final : c));
+      setSelected(final);
+      await persistClient(final);
+    }
+  };
+
+  const handleReorderChecklistItems = async (clientId, periodKey, stageKey, newOrder, scope) => {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    const allPeriods = periodsForClient(client);
+    const currentIdx = allPeriods.findIndex(p => p.key === periodKey);
+    const targetPeriods = scope === "all"
+      ? allPeriods.slice(currentIdx)
+      : allPeriods.slice(currentIdx, currentIdx + 1);
+
+    const updated = applyUpdate(clientId, c => {
+      const fyData = { ...c.periods?.[activeFY] };
+      targetPeriods.forEach(p => {
+        const existing = fyData[p.key]?.[stageKey]?.checklist || [];
+        // Reorder by matching IDs from newOrder; items not in newOrder appended at end
+        const reordered = newOrder
+          .map(id => existing.find(i => i.id === id))
+          .filter(Boolean);
+        const rest = existing.filter(i => !newOrder.includes(i.id));
+        fyData[p.key] = {
+          ...fyData[p.key],
+          [stageKey]: { ...fyData[p.key]?.[stageKey], checklist: [...reordered, ...rest] }
+        };
+      });
+      return { ...c, periods: { ...c.periods, [activeFY]: fyData } };
+    });
+    if (updated) await persistClient(updated);
+  };
+
   // ── Audit Trail ──────────────────────────────────────────────────────────────
   const recordAudit = async (clientId, action) => {
     // Skip if no meaningful value to record
@@ -618,6 +684,8 @@ export default function Tracker({ session }) {
               onStageUpdate={handleStageUpdate}
               onAddChecklistItem={handleAddChecklistItem}
               onChecklistItemUpdate={handleChecklistItemUpdate}
+              onEditChecklistItem={handleEditChecklistItem}
+              onReorderChecklistItems={handleReorderChecklistItems}
               onDeleteChecklistItem={handleDeleteChecklistItem}
               onAddCommLog={handleAddCommLog}
               onDeleteCommLog={handleDeleteCommLog}
@@ -646,7 +714,7 @@ export default function Tracker({ session }) {
 
 // ── Detail View ───────────────────────────────────────────────────────────────
 
-function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdit, onDelete, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAddCommLog, onDeleteCommLog, onAudit }) {
+function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdit, onDelete, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onEditChecklistItem, onReorderChecklistItems, onDeleteChecklistItem, onAddCommLog, onDeleteCommLog, onAudit }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const [showAudit,  setShowAudit]  = useState(false);
   const periods    = periodsForClient(client);
@@ -776,6 +844,8 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
               onStageUpdate={onStageUpdate}
               onAddChecklistItem={onAddChecklistItem}
               onChecklistItemUpdate={onChecklistItemUpdate}
+              onEditChecklistItem={onEditChecklistItem}
+              onReorderChecklistItems={onReorderChecklistItems}
               onDeleteChecklistItem={onDeleteChecklistItem}
               onAudit={onAudit}
             />
@@ -802,41 +872,91 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
 
 // ── Stage Block ───────────────────────────────────────────────────────────────
 
-function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAudit }) {
+function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onEditChecklistItem, onReorderChecklistItems, onDeleteChecklistItem, onAudit }) {
   const [expanded,     setExpanded]     = useState(false);
   const [newItemLabel, setNewItemLabel] = useState("");
-  const [addScope,     setAddScope]     = useState(null);   // null | { label }
-  const [deleteScope,  setDeleteScope]  = useState(null);   // null | { itemId, label }
+  const [addScope,     setAddScope]     = useState(null);
+  const [deleteScope,  setDeleteScope]  = useState(null);
+  const [editScope,    setEditScope]    = useState(null);   // { itemId, oldLabel, newLabel }
+  const [editingId,    setEditingId]    = useState(null);   // which item is in edit mode
+  const [editValue,    setEditValue]    = useState("");
+  const [reorderScope, setReorderScope] = useState(null);  // { newOrder }
+  const [dragOverId,   setDragOverId]   = useState(null);
+
   const val     = stageData.status || "Pending";
   const ss      = th.statusStyles[val];
   const hasData = stageData.doneBy || stageData.doneDate || stageData.remarks || (stageData.checklist?.length > 0);
 
+  // ── Add ──
   const requestAdd = () => {
     if (!newItemLabel.trim()) return;
     setAddScope({ label: newItemLabel.trim() });
   };
-
   const confirmAdd = (scope) => {
     onAddChecklistItem(clientId, periodKey, stage.key, addScope.label, scope);
-    setNewItemLabel("");
-    setAddScope(null);
+    setNewItemLabel(""); setAddScope(null);
   };
 
+  // ── Edit ──
+  const startEdit = (item) => {
+    setEditingId(item.id); setEditValue(item.label);
+    setDeleteScope(null); setReorderScope(null);
+  };
+  const requestEdit = () => {
+    if (!editValue.trim() || editValue.trim() === editingId) return;
+    const item = (stageData.checklist||[]).find(i => i.id === editingId);
+    if (!item || editValue.trim() === item.label) { setEditingId(null); return; }
+    setEditScope({ itemId: editingId, oldLabel: item.label, newLabel: editValue.trim() });
+    setEditingId(null);
+  };
+  const confirmEdit = (scope) => {
+    onEditChecklistItem(clientId, periodKey, stage.key, editScope.itemId, editScope.newLabel, scope);
+    setEditScope(null);
+  };
+
+  // ── Delete ──
   const requestDelete = (itemId, label) => {
+    setEditingId(null); setReorderScope(null);
     setDeleteScope({ itemId, label });
   };
-
   const confirmDelete = (scope) => {
     onDeleteChecklistItem(clientId, periodKey, stage.key, deleteScope.itemId, scope);
     setDeleteScope(null);
   };
 
-  // Shared inline scope picker styles
-  const scopeBox = (onThis, onAll, onCancel, label, th) => (
+  // ── Drag & drop reorder ──
+  const handleDragStart = (e, id) => {
+    e.dataTransfer.setData("dragId", id);
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const handleDragOver = (e, id) => {
+    e.preventDefault(); e.dataTransfer.dropEffect = "move";
+    setDragOverId(id);
+  };
+  const handleDrop = (e, targetId) => {
+    e.preventDefault();
+    setDragOverId(null);
+    const dragId = e.dataTransfer.getData("dragId");
+    if (!dragId || dragId === targetId) return;
+    const list = stageData.checklist || [];
+    const oldOrder = list.map(i => i.id);
+    const fromIdx = oldOrder.indexOf(dragId);
+    const toIdx   = oldOrder.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const newOrder = [...oldOrder];
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, dragId);
+    setReorderScope({ newOrder });
+  };
+  const confirmReorder = (scope) => {
+    onReorderChecklistItems(clientId, periodKey, stage.key, reorderScope.newOrder, scope);
+    setReorderScope(null);
+  };
+
+  // ── Shared scope picker ──
+  const scopeBox = (onThis, onAll, onCancel, label) => (
     <div style={{background:th.bgCard,border:`1px solid ${th.accent}`,borderRadius:8,padding:"10px 12px",marginBottom:6,display:"flex",flexDirection:"column",gap:8}}>
-      <div style={{fontSize:11,color:th.textMuted,fontWeight:600}}>
-        {label}
-      </div>
+      <div style={{fontSize:11,color:th.textMuted,fontWeight:600}}>{label}</div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <button onClick={onThis}
           style={{background:th.bgStage,border:`1px solid ${th.border}`,borderRadius:6,padding:"4px 12px",fontSize:11,fontWeight:600,color:th.textMuted,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
@@ -911,31 +1031,73 @@ function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, 
               onBlur={e=>e.target.value&&onAudit(clientId,{type:"field",period:periodKey,stage:stage.label,field:"Remarks",to:e.target.value})}
               rows={2} style={{fontSize:12,resize:"vertical"}}/>
           </div>
+
           {stage.hasChecklist && (
             <div>
               <div className="lbl" style={{marginBottom:8}}>{stage.label} Checklist</div>
               {(stageData.checklist||[]).length === 0 && (
                 <div style={{fontSize:12,color:th.textFaintest,marginBottom:10,fontStyle:"italic"}}>No checklist items yet. Add items below.</div>
               )}
+
               <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                 {(stageData.checklist||[]).map(item=>(
-                  <div key={item.id}>
-                    {/* Delete scope picker for this item */}
+                  <div key={item.id}
+                    draggable
+                    onDragStart={e=>handleDragStart(e,item.id)}
+                    onDragOver={e=>handleDragOver(e,item.id)}
+                    onDragLeave={()=>setDragOverId(null)}
+                    onDrop={e=>handleDrop(e,item.id)}
+                  >
+                    {/* Edit scope picker */}
+                    {editScope?.itemId === item.id && scopeBox(
+                      () => confirmEdit("this"),
+                      () => confirmEdit("all"),
+                      () => setEditScope(null),
+                      `Rename "${editScope.oldLabel}" → "${editScope.newLabel}" in:`
+                    )}
+                    {/* Delete scope picker */}
                     {deleteScope?.itemId === item.id && scopeBox(
                       () => confirmDelete("this"),
                       () => confirmDelete("all"),
                       () => setDeleteScope(null),
-                      `Remove "${item.label}" from:`,
-                      th
+                      `Remove "${item.label}" from:`
                     )}
-                    <div className="checklist-row">
+
+                    <div className="checklist-row" style={{
+                      opacity: dragOverId===item.id ? 0.5 : 1,
+                      borderColor: dragOverId===item.id ? th.accent : th.border,
+                      cursor:"grab"
+                    }}>
+                      {/* Drag handle */}
+                      <span style={{color:th.textFaintest,fontSize:13,cursor:"grab",flexShrink:0,paddingRight:2,userSelect:"none"}}>⠿</span>
+
+                      {/* Status toggle */}
                       <div onClick={()=>{
                           const next=item.status==="Pending"?"Done":item.status==="Done"?"N/A":"Pending";
                           onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"status",next);
                         }}
                         style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${th.statusStyles[item.status||"Pending"].dot}`,background:item.status==="Done"?th.statusStyles["Done"].dot:item.status==="N/A"?th.statusStyles["N/A"].dot:"transparent",cursor:"pointer",flexShrink:0,transition:"all .14s"}}
                       />
-                      <span style={{flex:1,fontSize:12,color:item.status==="Done"?th.textFaintest:th.textMuted,textDecoration:item.status==="Done"?"line-through":"none"}}>{item.label}</span>
+
+                      {/* Label — inline edit or display */}
+                      {editingId === item.id ? (
+                        <input
+                          autoFocus
+                          className="inp"
+                          value={editValue}
+                          onChange={e=>setEditValue(e.target.value)}
+                          onKeyDown={e=>{ if(e.key==="Enter") requestEdit(); if(e.key==="Escape"){ setEditingId(null); } }}
+                          onBlur={requestEdit}
+                          style={{flex:1,fontSize:12,padding:"2px 6px",height:24}}
+                        />
+                      ) : (
+                        <span
+                          style={{flex:1,fontSize:12,color:item.status==="Done"?th.textFaintest:th.textMuted,textDecoration:item.status==="Done"?"line-through":"none"}}
+                          onDoubleClick={()=>startEdit(item)}
+                        >{item.label}</span>
+                      )}
+
+                      {/* Done by + date */}
                       <input className="inp-sm" placeholder="Done by"
                         value={item.doneBy||""}
                         onChange={e=>onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"doneBy",e.target.value)}
@@ -944,20 +1106,36 @@ function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, 
                         value={item.doneDate||""}
                         onChange={e=>onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"doneDate",e.target.value)}
                         style={{width:130}}/>
-                      <button onClick={()=>deleteScope?.itemId===item.id ? setDeleteScope(null) : requestDelete(item.id, item.label)}
+
+                      {/* Edit button */}
+                      <button
+                        onClick={()=>editingId===item.id ? requestEdit() : startEdit(item)}
+                        title="Edit label"
+                        style={{background:"transparent",border:"none",color:editingId===item.id?th.accent:th.textFaintest,cursor:"pointer",fontSize:13,padding:"0 2px",lineHeight:1}}>✏</button>
+
+                      {/* Delete button */}
+                      <button
+                        onClick={()=>deleteScope?.itemId===item.id ? setDeleteScope(null) : requestDelete(item.id, item.label)}
                         style={{background:"transparent",border:"none",color:deleteScope?.itemId===item.id?th.accent:th.textFaintest,cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}}>✕</button>
                     </div>
                   </div>
                 ))}
               </div>
 
+              {/* Reorder scope picker */}
+              {reorderScope && scopeBox(
+                () => confirmReorder("this"),
+                () => confirmReorder("all"),
+                () => setReorderScope(null),
+                "Apply this new order to:"
+              )}
+
               {/* Add scope picker */}
               {addScope && scopeBox(
                 () => confirmAdd("this"),
                 () => confirmAdd("all"),
                 () => setAddScope(null),
-                `Add "${addScope.label}" to:`,
-                th
+                `Add "${addScope.label}" to:`
               )}
 
               <div style={{display:"flex",gap:8}}>
@@ -1300,6 +1478,7 @@ function AuditLog({ entries, th }) {
     if (e.type === "status")           return `${e.stage} [${e.period}] changed from "${e.from}" → "${e.to}"`;
     if (e.type === "field")            return `${e.stage} [${e.period}] — ${e.field} set to "${e.to}"`;
     if (e.type === "checklist_add")    return `${e.stage} [${e.period}] — checklist item added: "${e.item}"`;
+    if (e.type === "checklist_edit")   return `${e.stage} [${e.period}] — checklist item renamed to ${e.item}`;
     if (e.type === "checklist_delete") return `${e.stage} [${e.period}] — checklist item removed: "${e.item}"`;
     return JSON.stringify(e);
   };
