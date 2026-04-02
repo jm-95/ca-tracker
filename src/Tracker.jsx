@@ -79,6 +79,8 @@ const DARK_THEME = {
   tagFreq:     { bg:"#1C3B2C33", border:"#1C3B2C", color:"#6EE7B7" },
   btnDelete:   { bg:"#7F1D1D22", border:"#7F1D1D55", color:"#FCA5A5", bgHover:"#7F1D1D55" },
   gridColors:  { "Pending":"#78350F", "In Progress":"#1D4ED8", "Done":"#166534", "N/A":"#1E293B" },
+  avColors:    ["#1E3A5F","#1C3B2C","#3B1D6E","#4A1942","#2D1B00","#1A2E4A"],
+  avText:      "#FFFFFF",
   statusStyles: {
     "Pending":     { bg:"#2A1A0588", border:"#92400E", color:"#FCD34D", dot:"#F59E0B" },
     "In Progress": { bg:"#0C234088", border:"#1E40AF", color:"#93C5FD", dot:"#3B82F6" },
@@ -123,6 +125,8 @@ const LIGHT_THEME = {
   tagFreq:     { bg:"#DCFCE7", border:"#86EFAC", color:"#166534" },
   btnDelete:   { bg:"#FEE2E2", border:"#FCA5A5", color:"#991B1B", bgHover:"#FECACA" },
   gridColors:  { "Pending":"#D97706", "In Progress":"#2563EB", "Done":"#16A34A", "N/A":"#94A3B8" },
+  avColors:    ["#BFDBFE","#BBF7D0","#DDD6FE","#FBCFE8","#FDE68A","#BAE6FD"],
+  avText:      "#0C2D48",
   statusStyles: {
     "Pending":     { bg:"#FEF3C7", border:"#FCD34D", color:"#92400E", dot:"#D97706" },
     "In Progress": { bg:"#DBEAFE", border:"#93C5FD", color:"#1D4ED8", dot:"#3B82F6" },
@@ -564,10 +568,10 @@ export default function Tracker({ session }) {
               const doneCount=periods.filter(p=>overallStatus(fyData[p.key])==="Done").length;
               const pct=periods.length===0?0:Math.round((doneCount/periods.length)*100);
               const initials=c.name.split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
-              const avBg=["#1E3A5F","#1C3B2C","#3B1D6E","#4A1942","#2D1B00","#1A2E4A"][c.name.charCodeAt(0)%6];
+              const avBg=th.avColors[c.name.charCodeAt(0)%6];
               return (
                 <div key={c.id} className={`crow${selected?.id===c.id?" act":""}`} onClick={()=>selectClient(c)}>
-                  <div className="av" style={{background:avBg,width:36,height:36,borderRadius:9,fontSize:13,border:`1px solid ${th.border}`}}>{initials}</div>
+                  <div className="av" style={{background:avBg,color:th.avText,width:36,height:36,borderRadius:9,fontSize:13,border:`1px solid ${th.border}`}}>{initials}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontWeight:600,fontSize:13,color:th.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
                     <div style={{fontSize:11,color:th.textFaint,marginBottom:5}}>{c.entity} · {c.frequency}</div>
@@ -652,7 +656,7 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
   const st   = overallStatus(periodData);
   const fyDone = periods.filter(p => overallStatus(fyData[p.key]) === "Done").length;
   const fyPct  = periods.length===0?0:Math.round((fyDone/periods.length)*100);
-  const avBg   = ["#1E3A5F","#1C3B2C","#3B1D6E","#4A1942","#2D1B00","#1A2E4A"][client.name.charCodeAt(0)%6];
+  const avBg   = th.avColors[client.name.charCodeAt(0)%6];
   const initials = client.name.split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
   const ss = th.statusStyles[st];
 
@@ -660,7 +664,7 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
     <div>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",gap:13}}>
-          <div className="av" style={{background:avBg,width:48,height:48,borderRadius:12,fontSize:17,border:`2px solid ${th.border}`}}>{initials}</div>
+          <div className="av" style={{background:avBg,color:th.avText,width:48,height:48,borderRadius:12,fontSize:17,border:`2px solid ${th.border}`}}>{initials}</div>
           <div>
             <h1 style={{fontFamily:"'Libre Baskerville',serif",fontSize:22,fontWeight:700,color:th.textPrimary,lineHeight:1.2}}>{client.name}</h1>
             <div style={{display:"flex",gap:6,marginTop:5,flexWrap:"wrap"}}>
@@ -986,7 +990,7 @@ function DashboardTable({ rows, onSelectClient, isOverdue, th }) {
         ))}
       </div>
       {rows.map(row=>{
-        const avBg=["#1E3A5F","#1C3B2C","#3B1D6E","#4A1942","#2D1B00","#1A2E4A"][row.client.name.charCodeAt(0)%6];
+        const avBg=th.avColors[row.client.name.charCodeAt(0)%6];
         const initials=row.client.name.split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
         return (
           <div key={`${row.client.id}-${row.periodKey}`}
@@ -995,7 +999,7 @@ function DashboardTable({ rows, onSelectClient, isOverdue, th }) {
             onMouseEnter={e=>e.currentTarget.style.background=isOverdue?"#1A0808":th.bgHover}
             onMouseLeave={e=>e.currentTarget.style.background=isOverdue?"#130303":"transparent"}>
             <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-              <div style={{width:26,height:26,borderRadius:7,background:avBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0,border:`1px solid ${th.border}`}}>{initials}</div>
+              <div style={{width:26,height:26,borderRadius:7,background:avBg,color:th.avText,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0,border:`1px solid ${th.border}`}}>{initials}</div>
               <div style={{minWidth:0}}>
                 <div style={{fontSize:12,fontWeight:600,color:isOverdue?"#FCA5A5":th.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.client.name}</div>
                 <div style={{fontSize:10,color:isOverdue?"#7F1D1D":th.textFaintest}}>{row.client.entity}</div>
