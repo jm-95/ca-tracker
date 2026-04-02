@@ -24,7 +24,9 @@ function fyList() {
 }
 function currentFY() {
   const now = new Date(); const y = now.getFullYear(); const m = now.getMonth();
-  return m >= 3 ? `FY ${y}-${String(y+1).slice(2)}` : `FY ${y-1}-${String(y).slice(2)}`;
+  // Jan(0) Feb(1) Mar(2) → point to the FY that starts in April of the same year
+  // Apr(3) onwards → FY starting this year
+  return m >= 3 ? `FY ${y}-${String(y+1).slice(2)}` : `FY ${y}-${String(y+1).slice(2)}`;
 }
 function periodsForClient(client) {
   if (client.frequency === "Monthly")   return MONTHS.map((m,i) => ({ key:m, label:MONTH_FULL[i] }));
@@ -39,6 +41,87 @@ const STATUS_STYLES = {
   "N/A":         { bg:"#1A1A2E88", border:"#334155", color:"#64748B", dot:"#475569" },
 };
 const GRID_COLORS = { "Pending":"#78350F","In Progress":"#1D4ED8","Done":"#166534","N/A":"#1E293B" };
+
+// ── Theme tokens ──────────────────────────────────────────────────────────────
+const DARK_THEME = {
+  bgBase:      "#0A0F1E",
+  bgCard:      "#111827",
+  bgInput:     "#0A0F1E",
+  bgSidebar:   "#0A0F1E",
+  bgStage:     "#0A0F1E",
+  bgStageFoot: "#06080F",
+  bgTopbar:    "#0A0F1E",
+  bgChecklist: "#0A0F1E",
+  bgModal:     "#111827",
+  bgHover:     "#111827",
+  bgRowAct:    "#0C1E38",
+  bgPtabAct:   "#0C1E38",
+  bgFyAct:     "#0C1E38",
+  border:      "#1E293B",
+  borderStrong:"#334155",
+  borderRowSep:"#0F172A",
+  accent:      "#2563EB",
+  accentHover: "#1D4ED8",
+  accentLight: "#93C5FD",
+  textPrimary: "#F1F5F9",
+  textBody:    "#E2E8F0",
+  textMuted:   "#94A3B8",
+  textFaint:   "#475569",
+  textFaintest:"#334155",
+  pfill:       "linear-gradient(90deg,#2563EB,#06B6D4)",
+  scrollThumb: "#1E293B",
+  scrollTrack: "#0A0F1E",
+  toastOk:     "#14532D",
+  toastOkTxt:  "#86EFAC",
+  toastErr:    "#7F1D1D",
+  toastErrTxt: "#FCA5A5",
+  statusStyles: {
+    "Pending":     { bg:"#2A1A0588", border:"#92400E", color:"#FCD34D", dot:"#F59E0B" },
+    "In Progress": { bg:"#0C234088", border:"#1E40AF", color:"#93C5FD", dot:"#3B82F6" },
+    "Done":        { bg:"#052E1688", border:"#166534", color:"#86EFAC", dot:"#22C55E" },
+    "N/A":         { bg:"#1A1A2E88", border:"#334155", color:"#64748B", dot:"#475569" },
+  },
+};
+
+const LIGHT_THEME = {
+  bgBase:      "#BAE6FD",
+  bgCard:      "#FFFFFF",
+  bgInput:     "#EFF9FF",
+  bgSidebar:   "#D4EEFA",
+  bgStage:     "#EFF9FF",
+  bgStageFoot: "#E0F3FD",
+  bgTopbar:    "#0C2D48",
+  bgChecklist: "#EFF9FF",
+  bgModal:     "#FFFFFF",
+  bgHover:     "#E0F3FD",
+  bgRowAct:    "#FFFFFF",
+  bgPtabAct:   "#FFFFFF",
+  bgFyAct:     "#BAE6FD",
+  border:      "#7EC8E8",
+  borderStrong:"#56A8C8",
+  borderRowSep:"#C8E8F8",
+  accent:      "#0EA5E9",
+  accentHover: "#0284C7",
+  accentLight: "#0C2D48",
+  textPrimary: "#0C2D48",
+  textBody:    "#0C2D48",
+  textMuted:   "#1A5A7A",
+  textFaint:   "#3A7A9A",
+  textFaintest:"#5A9ABA",
+  pfill:       "linear-gradient(90deg,#0EA5E9,#38BDF8)",
+  scrollThumb: "#7EC8E8",
+  scrollTrack: "#BAE6FD",
+  toastOk:     "#DCFCE7",
+  toastOkTxt:  "#166534",
+  toastErr:    "#FEE2E2",
+  toastErrTxt: "#991B1B",
+  statusStyles: {
+    "Pending":     { bg:"#FEF3C7", border:"#FCD34D", color:"#92400E", dot:"#D97706" },
+    "In Progress": { bg:"#DBEAFE", border:"#93C5FD", color:"#1D4ED8", dot:"#3B82F6" },
+    "Done":        { bg:"#DCFCE7", border:"#86EFAC", color:"#166534", dot:"#22C55E" },
+    "N/A":         { bg:"#F1F5F9", border:"#CBD5E1", color:"#64748B", dot:"#94A3B8" },
+  },
+};
 
 function emptyStageData(key) {
   const base = { status:"Pending", doneBy:"", doneDate:"", remarks:"" };
@@ -102,6 +185,14 @@ export default function Tracker({ session }) {
   const [saving,       setSaving]       = useState(false);
   const [toast,        setToast]        = useState(null);
   const [showExport,   setShowExport]   = useState(false);
+  const [darkMode,     setDarkMode]     = useState(() => localStorage.getItem("caTrackerDark") === "true");
+
+  const th = darkMode ? DARK_THEME : LIGHT_THEME;
+  const toggleDark = () => setDarkMode(d => {
+    const next = !d;
+    localStorage.setItem("caTrackerDark", String(next));
+    return next;
+  });
 
   const loadClients = useCallback(async () => {
     const { data, error } = await supabase.from("clients").select("*");
@@ -331,58 +422,60 @@ export default function Tracker({ session }) {
   );
 
   return (
-    <div style={{minHeight:"100vh",background:"#0A0F1E",fontFamily:"'DM Sans',sans-serif",color:"#E2E8F0",display:"flex",flexDirection:"column"}}>
+    <div style={{minHeight:"100vh",background:th.bgBase,fontFamily:"'DM Sans',sans-serif",color:th.textBody,display:"flex",flexDirection:"column",transition:"background .25s,color .25s"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Libre+Baskerville:wght@400;700&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
-        ::-webkit-scrollbar{width:5px;height:5px;} ::-webkit-scrollbar-track{background:#0A0F1E;} ::-webkit-scrollbar-thumb{background:#1E293B;border-radius:3px;}
+        ::-webkit-scrollbar{width:5px;height:5px;}
+        ::-webkit-scrollbar-track{background:${th.scrollTrack};}
+        ::-webkit-scrollbar-thumb{background:${th.scrollThumb};border-radius:3px;}
         input,select,textarea{outline:none;font-family:'DM Sans',sans-serif;}
-        .card{background:#111827;border:1px solid #1E293B;border-radius:14px;}
-        .btn-p{background:linear-gradient(135deg,#2563EB,#1D4ED8);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all .18s;}
+        .card{background:${th.bgCard};border:1px solid ${th.border};border-radius:14px;}
+        .btn-p{background:linear-gradient(135deg,${th.accent},${th.accentHover});color:#fff;border:none;border-radius:8px;padding:8px 16px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all .18s;}
         .btn-p:hover{opacity:.88;transform:translateY(-1px);}
-        .btn-g{background:transparent;color:#94A3B8;border:1px solid #1E293B;border-radius:8px;padding:8px 14px;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;transition:all .18s;}
-        .btn-g:hover{background:#1E293B;color:#E2E8F0;}
+        .btn-g{background:transparent;color:${th.textMuted};border:1px solid ${th.border};border-radius:8px;padding:8px 14px;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;transition:all .18s;}
+        .btn-g:hover{background:${th.bgHover};color:${th.textPrimary};}
         .btn-d{background:#7F1D1D22;color:#FCA5A5;border:1px solid #7F1D1D55;border-radius:8px;padding:8px 14px;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;transition:all .18s;}
         .btn-d:hover{background:#7F1D1D55;}
-        .inp{background:#0A0F1E;border:1px solid #1E293B;border-radius:8px;color:#E2E8F0;padding:8px 12px;font-size:13px;width:100%;transition:border .18s;}
-        .inp:focus{border-color:#2563EB;}
-        .inp-sm{background:#0A0F1E;border:1px solid #1E293B;border-radius:6px;color:#E2E8F0;padding:5px 9px;font-size:12px;font-family:'DM Sans',sans-serif;transition:border .18s;outline:none;}
-        .inp-sm:focus{border-color:#2563EB;}
-        .sel{background:#0A0F1E;border:1px solid #1E293B;border-radius:8px;color:#E2E8F0;padding:8px 12px;font-size:13px;cursor:pointer;}
-        .lbl{font-size:10px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:#475569;margin-bottom:4px;}
+        .inp{background:${th.bgInput};border:1px solid ${th.border};border-radius:8px;color:${th.textPrimary};padding:8px 12px;font-size:13px;width:100%;transition:border .18s;}
+        .inp:focus{border-color:${th.accent};}
+        .inp-sm{background:${th.bgInput};border:1px solid ${th.border};border-radius:6px;color:${th.textPrimary};padding:5px 9px;font-size:12px;font-family:'DM Sans',sans-serif;transition:border .18s;outline:none;}
+        .inp-sm:focus{border-color:${th.accent};}
+        .sel{background:${th.bgInput};border:1px solid ${th.border};border-radius:8px;color:${th.textPrimary};padding:8px 12px;font-size:13px;cursor:pointer;}
+        .lbl{font-size:10px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:${th.textFaint};margin-bottom:4px;}
         .tag{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
-        .crow{cursor:pointer;padding:14px 16px;border-bottom:1px solid #0F172A;transition:background .14s;display:flex;align-items:center;gap:12px;}
-        .crow:hover{background:#111827;}
-        .crow.act{background:#0C1E38;border-left:3px solid #2563EB;}
+        .crow{cursor:pointer;padding:14px 16px;border-bottom:1px solid ${th.borderRowSep};transition:background .14s;display:flex;align-items:center;gap:12px;}
+        .crow:hover{background:${th.bgHover};}
+        .crow.act{background:${th.bgRowAct};border-left:3px solid ${th.accent};}
         .spill{border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid transparent;font-family:'DM Sans',sans-serif;transition:all .14s;white-space:nowrap;}
-        .spill:hover{filter:brightness(1.2);}
-        .pbar{height:5px;border-radius:3px;background:#1E293B;overflow:hidden;}
-        .pfill{height:100%;border-radius:3px;background:linear-gradient(90deg,#2563EB,#06B6D4);transition:width .4s ease;}
+        .spill:hover{filter:brightness(${darkMode?'1.2':'0.92'});}
+        .pbar{height:5px;border-radius:3px;background:${th.border};overflow:hidden;}
+        .pfill{height:100%;border-radius:3px;background:${th.pfill};transition:width .4s ease;}
         .av{display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;}
         .pgrid-cell{height:28px;border-radius:5px;cursor:pointer;transition:all .14s;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;letter-spacing:.4px;border:2px solid transparent;}
-        .pgrid-cell:hover{filter:brightness(1.25);}
-        .ptab{padding:6px 13px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #1E293B;transition:all .14s;white-space:nowrap;background:transparent;font-family:'DM Sans',sans-serif;}
-        .ptab:hover{border-color:#334155;}
-        .ptab.act{background:#0C1E38;border-color:#2563EB;color:#93C5FD;}
-        .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;}
-        .modal{background:#111827;border:1px solid #1E293B;border-radius:16px;width:100%;max-width:620px;max-height:90vh;overflow-y:auto;}
-        .fy-btn{padding:5px 11px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid #1E293B;background:transparent;color:#475569;font-family:'DM Sans',sans-serif;transition:all .14s;}
-        .fy-btn:hover{border-color:#334155;color:#94A3B8;}
-        .fy-btn.act{background:#0C1E38;border-color:#2563EB;color:#93C5FD;}
-        .stage-block{background:#0A0F1E;border-radius:10px;border:1px solid #1E293B;overflow:hidden;transition:border .18s;}
-        .stage-block.active-border{border-color:#1E40AF55;}
+        .pgrid-cell:hover{filter:brightness(1.15);}
+        .ptab{padding:6px 13px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${th.border};transition:all .14s;white-space:nowrap;background:transparent;font-family:'DM Sans',sans-serif;color:${th.textFaint};}
+        .ptab:hover{border-color:${th.borderStrong};}
+        .ptab.act{background:${th.bgPtabAct};border-color:${th.accent};color:${darkMode?'#93C5FD':th.accent};}
+        .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;}
+        .modal{background:${th.bgModal};border:1px solid ${th.border};border-radius:16px;width:100%;max-width:620px;max-height:90vh;overflow-y:auto;}
+        .fy-btn{padding:5px 11px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${darkMode?th.border:'rgba(255,255,255,0.18)'};background:transparent;color:${darkMode?th.textFaint:'rgba(255,255,255,0.55)'};font-family:'DM Sans',sans-serif;transition:all .14s;}
+        .fy-btn:hover{border-color:${darkMode?th.borderStrong:'rgba(255,255,255,0.4)'};color:${darkMode?th.textMuted:'rgba(255,255,255,0.85)'};}
+        .fy-btn.act{background:${th.bgFyAct};border-color:${darkMode?th.accent:'#BAE6FD'};color:${darkMode?'#93C5FD':'#0C2D48'};font-weight:700;}
+        .stage-block{background:${th.bgStage};border-radius:10px;border:1px solid ${th.border};overflow:hidden;transition:border .18s,background .25s;}
+        .stage-block.active-border{border-color:${th.accent}44;}
         .stage-head{display:flex;align-items:center;gap:11px;padding:10px 13px;}
-        .stage-foot{padding:14px 14px 14px 14px;border-top:1px solid #1E293B;background:#06080F;display:flex;flex-direction:column;gap:11px;}
-        .checklist-row{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#0A0F1E;border-radius:7px;border:1px solid #1E293B;}
+        .stage-foot{padding:14px;border-top:1px solid ${th.border};background:${th.bgStageFoot};display:flex;flex-direction:column;gap:11px;}
+        .checklist-row{display:flex;align-items:center;gap:8px;padding:8px 10px;background:${th.bgChecklist};border-radius:7px;border:1px solid ${th.border};}
         @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
       `}</style>
 
-      {/* Topbar */}
-      <div style={{background:"#0A0F1E",borderBottom:"1px solid #1E293B",padding:"0 22px",height:54,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,position:"sticky",top:0,zIndex:100}}>
+      {/* Topbar — always navy in both modes */}
+      <div style={{background:th.bgTopbar,borderBottom:`1px solid ${darkMode?th.border:'#1A4A6A'}`,padding:"0 22px",height:54,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,position:"sticky",top:0,zIndex:100}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:30,height:30,background:"linear-gradient(135deg,#2563EB,#0EA5E9)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>📋</div>
           <span style={{fontFamily:"'Libre Baskerville',serif",fontSize:18,fontWeight:700,color:"#F1F5F9"}}>CA Client Tracker</span>
-          {saving && <span style={{fontSize:11,color:"#334155",marginLeft:6}}>saving…</span>}
+          {saving && <span style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginLeft:6}}>saving…</span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
           {fyList().map(fy=>(
@@ -391,20 +484,26 @@ export default function Tracker({ session }) {
               {fy}
             </button>
           ))}
-          <div style={{width:1,height:18,background:"#1E293B",margin:"0 4px"}}/>
-          <span style={{fontSize:11,color:"#334155"}}>{session.user.email}</span>
-          <button className="btn-g" style={{padding:"6px 12px",fontSize:12}} onClick={async()=>await supabase.auth.signOut()}>Sign out</button>
+          <div style={{width:1,height:18,background:"rgba(255,255,255,0.15)",margin:"0 4px"}}/>
+          <span style={{fontSize:11,color:"rgba(255,255,255,0.35)"}}>{session.user.email}</span>
+          <button style={{background:"transparent",color:"rgba(255,255,255,0.55)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:8,padding:"6px 12px",fontFamily:"'DM Sans',sans-serif",fontSize:12,cursor:"pointer"}} onClick={async()=>await supabase.auth.signOut()}>Sign out</button>
           <button className={`fy-btn${view==="dashboard"?" act":""}`} onClick={()=>{setView("dashboard");setSelected(null);}}>📊 Dashboard</button>
-          <button className="btn-g" style={{padding:"6px 12px",fontSize:12}} onClick={()=>downloadAllAuditLog(clients)}>⬇ Audit Log</button>
-          <button className="btn-g" style={{padding:"6px 12px",fontSize:12,borderColor:"#1D4ED8",color:"#93C5FD"}} onClick={()=>setShowExport(true)}>📤 Export</button>
+          <button style={{background:"transparent",color:"rgba(255,255,255,0.55)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:8,padding:"6px 12px",fontFamily:"'DM Sans',sans-serif",fontSize:12,cursor:"pointer"}} onClick={()=>downloadAllAuditLog(clients)}>⬇ Audit Log</button>
+          <button style={{background:"transparent",color:"#93C5FD",border:"1px solid #1D4ED8",borderRadius:8,padding:"6px 12px",fontFamily:"'DM Sans',sans-serif",fontSize:12,cursor:"pointer"}} onClick={()=>setShowExport(true)}>📤 Export</button>
+          {/* Dark/Light toggle */}
+          <button
+            onClick={toggleDark}
+            title={darkMode?"Switch to Light Mode":"Switch to Dark Mode"}
+            style={{background:"transparent",border:"1px solid rgba(255,255,255,0.18)",borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:15,lineHeight:1,transition:"all .18s"}}
+          >{darkMode ? "☀️" : "🌙"}</button>
           <button className="btn-p" onClick={()=>{setEditClient(newClient());setView("form");}}>+ Add Client</button>
         </div>
       </div>
 
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
         {/* Sidebar */}
-        <div style={{width:290,flexShrink:0,borderRight:"1px solid #1E293B",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-          <div style={{padding:"11px",borderBottom:"1px solid #1E293B"}}>
+        <div style={{width:290,flexShrink:0,borderRight:`1px solid ${th.border}`,display:"flex",flexDirection:"column",overflow:"hidden",background:th.bgSidebar}}>
+          <div style={{padding:"11px",borderBottom:`1px solid ${th.border}`}}>
             <input className="inp" placeholder="🔍  Search name or PAN…" value={search} onChange={e=>setSearch(e.target.value)} style={{marginBottom:8}}/>
             <div style={{display:"flex",gap:6}}>
               <select className="sel" value={filterEntity} onChange={e=>setFilterEntity(e.target.value)} style={{flex:1,fontSize:11}}>
@@ -418,7 +517,7 @@ export default function Tracker({ session }) {
             </div>
           </div>
           <div style={{overflowY:"auto",flex:1}}>
-            {filtered.length===0 && <div style={{padding:28,textAlign:"center",color:"#334155",fontSize:13}}>{clients.length===0?"No clients yet. Add your first client!":"No clients match your filters."}</div>}
+            {filtered.length===0 && <div style={{padding:28,textAlign:"center",color:th.textFaint,fontSize:13}}>{clients.length===0?"No clients yet. Add your first client!":"No clients match your filters."}</div>}
             {filtered.map(c=>{
               const fyData=c.periods?.[activeFY]||{};
               const periods=periodsForClient(c);
@@ -430,11 +529,11 @@ export default function Tracker({ session }) {
                 <div key={c.id} className={`crow${selected?.id===c.id?" act":""}`} onClick={()=>selectClient(c)}>
                   <div className="av" style={{background:avBg,width:36,height:36,borderRadius:9,fontSize:13}}>{initials}</div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:600,fontSize:13,color:"#F1F5F9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
-                    <div style={{fontSize:11,color:"#475569",marginBottom:5}}>{c.entity} · {c.frequency}</div>
+                    <div style={{fontWeight:600,fontSize:13,color:th.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
+                    <div style={{fontSize:11,color:th.textFaint,marginBottom:5}}>{c.entity} · {c.frequency}</div>
                     <div style={{display:"flex",alignItems:"center",gap:7}}>
                       <div className="pbar" style={{flex:1}}><div className="pfill" style={{width:`${pct}%`}}/></div>
-                      <span style={{fontSize:10,color:"#475569",flexShrink:0}}>{doneCount}/{periods.length}</span>
+                      <span style={{fontSize:10,color:th.textFaint,flexShrink:0}}>{doneCount}/{periods.length}</span>
                     </div>
                   </div>
                 </div>
@@ -444,11 +543,12 @@ export default function Tracker({ session }) {
         </div>
 
         {/* Main panel */}
-        <div style={{flex:1,overflowY:"auto",padding:22}}>
+        <div style={{flex:1,overflowY:"auto",padding:22,background:th.bgBase}}>
           {view==="dashboard" && (
             <Dashboard
               clients={clients}
               activeFY={activeFY}
+              th={th}
               onSelectClient={(c, period) => {
                 const filled = ensurePeriods(c, activeFY);
                 setSelected(filled);
@@ -460,14 +560,15 @@ export default function Tracker({ session }) {
           {view==="list" && (
             <div style={{height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
               <div style={{fontSize:42}}>👈</div>
-              <div style={{fontSize:14,fontWeight:600,color:"#334155"}}>Select a client to view details</div>
-              <div style={{fontSize:11,color:"#1E293B"}}>Tracking {activeFY}</div>
+              <div style={{fontSize:14,fontWeight:600,color:th.textFaint}}>Select a client to view details</div>
+              <div style={{fontSize:11,color:th.textFaintest}}>Tracking {activeFY}</div>
             </div>
           )}
           {view==="detail" && selected && (
             <DetailView
               client={selected} activeFY={activeFY}
               activePeriod={activePeriod} setActivePeriod={setActivePeriod}
+              th={th}
               onEdit={()=>{setEditClient({...selected});setView("form");}}
               onDelete={()=>handleDelete(selected.id)}
               onStageUpdate={handleStageUpdate}
@@ -483,15 +584,15 @@ export default function Tracker({ session }) {
       </div>
 
       {view==="form" && editClient && (
-        <ClientForm client={editClient} onSave={handleSaveClient} onCancel={()=>setView(selected?"detail":"list")}/>
+        <ClientForm client={editClient} onSave={handleSaveClient} onCancel={()=>setView(selected?"detail":"list")} th={th}/>
       )}
 
       {showExport && (
-        <ExportModal clients={clients} onClose={()=>setShowExport(false)} />
+        <ExportModal clients={clients} onClose={()=>setShowExport(false)} th={th}/>
       )}
 
       {toast && (
-        <div style={{position:"fixed",bottom:22,right:22,padding:"10px 18px",borderRadius:9,fontSize:13,fontWeight:600,zIndex:999,animation:"fadeUp .28s ease",background:toast.type==="error"?"#7F1D1D":"#14532D",color:toast.type==="error"?"#FCA5A5":"#86EFAC"}}>
+        <div style={{position:"fixed",bottom:22,right:22,padding:"10px 18px",borderRadius:9,fontSize:13,fontWeight:600,zIndex:999,animation:"fadeUp .28s ease",background:toast.type==="error"?th.toastErr:th.toastOk,color:toast.type==="error"?th.toastErrTxt:th.toastOkTxt,border:`1px solid ${toast.type==="error"?th.toastErrTxt+"44":th.toastOkTxt+"44"}`}}>
           {toast.type==="error"?"⚠ ":"✓ "}{toast.msg}
         </div>
       )}
@@ -501,7 +602,7 @@ export default function Tracker({ session }) {
 
 // ── Detail View ───────────────────────────────────────────────────────────────
 
-function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, onDelete, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAddCommLog, onDeleteCommLog, onAudit }) {
+function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdit, onDelete, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAddCommLog, onDeleteCommLog, onAudit }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const [showAudit,  setShowAudit]  = useState(false);
   const periods    = periodsForClient(client);
@@ -513,6 +614,7 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
   const fyPct  = periods.length===0?0:Math.round((fyDone/periods.length)*100);
   const avBg   = ["#1E3A5F","#1C3B2C","#3B1D6E","#4A1942","#2D1B00","#1A2E4A"][client.name.charCodeAt(0)%6];
   const initials = client.name.split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
+  const ss = th.statusStyles[st];
 
   return (
     <div>
@@ -520,12 +622,12 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
         <div style={{display:"flex",alignItems:"center",gap:13}}>
           <div className="av" style={{background:avBg,width:48,height:48,borderRadius:12,fontSize:17}}>{initials}</div>
           <div>
-            <h1 style={{fontFamily:"'Libre Baskerville',serif",fontSize:22,fontWeight:700,color:"#F1F5F9",lineHeight:1.2}}>{client.name}</h1>
+            <h1 style={{fontFamily:"'Libre Baskerville',serif",fontSize:22,fontWeight:700,color:th.textPrimary,lineHeight:1.2}}>{client.name}</h1>
             <div style={{display:"flex",gap:6,marginTop:5,flexWrap:"wrap"}}>
-              <span className="tag" style={{background:"#1E3A5F33",border:"1px solid #1E3A5F",color:"#93C5FD"}}>{client.entity}</span>
+              <span className="tag" style={{background:th.accent+"22",border:`1px solid ${th.accent}66`,color:th.accent}}>{client.entity}</span>
               <span className="tag" style={{background:"#1C3B2C33",border:"1px solid #1C3B2C",color:"#6EE7B7"}}>{client.frequency}</span>
-              <span className="tag" style={{background:STATUS_STYLES[st].bg,border:`1px solid ${STATUS_STYLES[st].border}`,color:STATUS_STYLES[st].color}}>
-                <span style={{width:6,height:6,borderRadius:"50%",background:STATUS_STYLES[st].dot,flexShrink:0}}/>
+              <span className="tag" style={{background:ss.bg,border:`1px solid ${ss.border}`,color:ss.color}}>
+                <span style={{width:6,height:6,borderRadius:"50%",background:ss.dot,flexShrink:0}}/>
                 {activePeriod}: {st}
               </span>
             </div>
@@ -542,24 +644,24 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
         <div className="card" style={{padding:16}}>
-          <div className="lbl" style={{color:"#2563EB",marginBottom:12}}>Client Profile</div>
+          <div className="lbl" style={{color:th.accent,marginBottom:12}}>Client Profile</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             {[{l:"PAN",v:client.pan||"—"},{l:"GSTIN",v:client.gstin||"Not Applicable"},{l:"Entity",v:client.entity},{l:"Frequency",v:client.frequency},{l:"Email",v:client.contact||"—"},{l:"Phone",v:client.phone||"—"}].map(f=>(
-              <div key={f.l}><div className="lbl">{f.l}</div><div style={{fontSize:12,color:"#CBD5E1",fontWeight:500,wordBreak:"break-all"}}>{f.v}</div></div>
+              <div key={f.l}><div className="lbl">{f.l}</div><div style={{fontSize:12,color:th.textMuted,fontWeight:500,wordBreak:"break-all"}}>{f.v}</div></div>
             ))}
           </div>
           {client.notes && (
-            <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #1E293B"}}>
+            <div style={{marginTop:12,paddingTop:10,borderTop:`1px solid ${th.border}`}}>
               <div className="lbl">Notes</div>
-              <div style={{fontSize:11,color:"#475569",lineHeight:1.6}}>{client.notes}</div>
+              <div style={{fontSize:11,color:th.textFaint,lineHeight:1.6}}>{client.notes}</div>
             </div>
           )}
         </div>
 
         <div className="card" style={{padding:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div className="lbl" style={{color:"#2563EB"}}>{activeFY} Overview</div>
-            <span style={{fontSize:20,fontWeight:700,color:"#F1F5F9"}}>{fyPct}%</span>
+            <div className="lbl" style={{color:th.accent}}>{activeFY} Overview</div>
+            <span style={{fontSize:20,fontWeight:700,color:th.textPrimary}}>{fyPct}%</span>
           </div>
           <div className="pbar" style={{height:6,marginBottom:14}}><div className="pfill" style={{width:`${fyPct}%`}}/></div>
           <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(periods.length,6)},1fr)`,gap:4}}>
@@ -568,7 +670,7 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
               const isAct=activePeriod===p.key;
               return (
                 <div key={p.key} className="pgrid-cell" onClick={()=>setActivePeriod(p.key)}
-                  style={{background:GRID_COLORS[ost]+(isAct?"FF":"55"),border:isAct?`2px solid ${STATUS_STYLES[ost].dot}`:"2px solid transparent",color:isAct?"#fff":"#64748B"}}>
+                  style={{background:GRID_COLORS[ost]+(isAct?"FF":"55"),border:isAct?`2px solid ${th.statusStyles[ost].dot}`:"2px solid transparent",color:isAct?"#fff":"#94A3B8"}}>
                   {p.key}
                 </div>
               );
@@ -576,7 +678,7 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
           </div>
           <div style={{display:"flex",gap:10,marginTop:10,flexWrap:"wrap"}}>
             {["Pending","In Progress","Done"].map(s=>(
-              <div key={s} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:"#475569"}}>
+              <div key={s} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:th.textFaint}}>
                 <div style={{width:9,height:9,borderRadius:2,background:GRID_COLORS[s]}}/>{s}
               </div>
             ))}
@@ -586,14 +688,14 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
 
       {/* Period tabs + stages */}
       <div className="card" style={{padding:18}}>
-        <div style={{display:"flex",gap:5,overflowX:"auto",paddingBottom:12,marginBottom:14,borderBottom:"1px solid #1E293B"}}>
+        <div style={{display:"flex",gap:5,overflowX:"auto",paddingBottom:12,marginBottom:14,borderBottom:`1px solid ${th.border}`}}>
           {periods.map(p=>{
             const ost=overallStatus(fyData[p.key]);
             const isAct=activePeriod===p.key;
             return (
               <button key={p.key} className={`ptab${isAct?" act":""}`} onClick={()=>setActivePeriod(p.key)}
-                style={{color:isAct?"#93C5FD":STATUS_STYLES[ost].color}}>
-                <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:STATUS_STYLES[ost].dot,marginRight:5,verticalAlign:"middle"}}/>
+                style={{color:isAct?th.accent:th.statusStyles[ost].color}}>
+                <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:th.statusStyles[ost].dot,marginRight:5,verticalAlign:"middle"}}/>
                 {p.key}
               </button>
             );
@@ -602,12 +704,12 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
 
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div>
-            <div style={{fontSize:14,fontWeight:700,color:"#F1F5F9"}}>{MONTH_FULL[MONTHS.indexOf(activePeriod)]||activePeriod}</div>
-            <div style={{fontSize:11,color:"#475569"}}>{pct}% complete</div>
+            <div style={{fontSize:14,fontWeight:700,color:th.textPrimary}}>{MONTH_FULL[MONTHS.indexOf(activePeriod)]||activePeriod}</div>
+            <div style={{fontSize:11,color:th.textMuted}}>{pct}% complete</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <div className="pbar" style={{width:90,height:5}}><div className="pfill" style={{width:`${pct}%`}}/></div>
-            <span style={{fontSize:13,fontWeight:700,color:"#F1F5F9"}}>{pct}%</span>
+            <span style={{fontSize:13,fontWeight:700,color:th.textPrimary}}>{pct}%</span>
           </div>
         </div>
 
@@ -619,6 +721,7 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
               stageData={periodData[stage.key] || emptyStageData(stage.key)}
               clientId={client.id}
               periodKey={activePeriod}
+              th={th}
               onStageUpdate={onStageUpdate}
               onAddChecklistItem={onAddChecklistItem}
               onChecklistItemUpdate={onChecklistItemUpdate}
@@ -633,13 +736,14 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
       <CommunicationLog
         clientId={client.id}
         entries={client.commLog||[]}
+        th={th}
         onAdd={onAddCommLog}
         onDelete={onDeleteCommLog}
       />
 
       {/* Audit Log */}
       {showAudit && (
-        <AuditLog entries={client.auditLog||[]} />
+        <AuditLog entries={client.auditLog||[]} th={th}/>
       )}
     </div>
   );
@@ -647,11 +751,11 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, onEdit, o
 
 // ── Stage Block ───────────────────────────────────────────────────────────────
 
-function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAudit }) {
+function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, onAddChecklistItem, onChecklistItemUpdate, onDeleteChecklistItem, onAudit }) {
   const [expanded,     setExpanded]     = useState(false);
   const [newItemLabel, setNewItemLabel] = useState("");
   const val     = stageData.status || "Pending";
-  const ss      = STATUS_STYLES[val];
+  const ss      = th.statusStyles[val];
   const hasData = stageData.doneBy || stageData.doneDate || stageData.remarks || (stageData.checklist?.length > 0);
 
   const addItem = () => {
@@ -662,41 +766,35 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
 
   return (
     <div className={`stage-block${hasData?" active-border":""}`}>
-      {/* Header row */}
       <div className="stage-head">
         <span style={{fontSize:17,width:22,textAlign:"center",flexShrink:0}}>{stage.icon}</span>
-        <span style={{flex:1,fontSize:13,fontWeight:500,color:"#CBD5E1"}}>{stage.label}</span>
-        {/* Status pills */}
+        <span style={{flex:1,fontSize:13,fontWeight:500,color:th.textMuted}}>{stage.label}</span>
         <div style={{display:"flex",gap:4}}>
           {STATUS_OPTIONS.map(opt=>(
             <button key={opt} className="spill"
               onClick={()=>onStageUpdate(clientId,periodKey,stage.key,"status",opt)}
-              style={{background:val===opt?STATUS_STYLES[opt].bg:"transparent",color:val===opt?STATUS_STYLES[opt].color:"#334155",border:val===opt?`1px solid ${STATUS_STYLES[opt].border}`:"1px solid #1E293B"}}>
+              style={{background:val===opt?th.statusStyles[opt].bg:"transparent",color:val===opt?th.statusStyles[opt].color:th.textFaintest,border:val===opt?`1px solid ${th.statusStyles[opt].border}`:`1px solid ${th.border}`}}>
               {opt}
             </button>
           ))}
         </div>
-        {/* Expand toggle */}
         <button onClick={()=>setExpanded(!expanded)}
-          style={{marginLeft:8,background:"transparent",border:"1px solid #1E293B",color:"#475569",borderRadius:6,padding:"3px 9px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
+          style={{marginLeft:8,background:"transparent",border:`1px solid ${th.border}`,color:th.textFaint,borderRadius:6,padding:"3px 9px",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
           {expanded?"▲":"▼"}
         </button>
       </div>
 
-      {/* Show summary line when collapsed but has data */}
       {!expanded && hasData && (
         <div style={{padding:"0 13px 10px 51px",display:"flex",gap:14,flexWrap:"wrap"}}>
-          {stageData.doneBy  && <span style={{fontSize:11,color:"#475569"}}>👤 {stageData.doneBy}</span>}
-          {stageData.doneDate && <span style={{fontSize:11,color:"#475569"}}>📅 {stageData.doneDate}</span>}
-          {stageData.remarks && <span style={{fontSize:11,color:"#475569",fontStyle:"italic"}}>💬 {stageData.remarks.slice(0,60)}{stageData.remarks.length>60?"…":""}</span>}
-          {stageData.checklist?.length > 0 && <span style={{fontSize:11,color:"#475569"}}>✓ {stageData.checklist.filter(i=>i.status==="Done").length}/{stageData.checklist.length} items</span>}
+          {stageData.doneBy   && <span style={{fontSize:11,color:th.textMuted}}>👤 {stageData.doneBy}</span>}
+          {stageData.doneDate && <span style={{fontSize:11,color:th.textMuted}}>📅 {stageData.doneDate}</span>}
+          {stageData.remarks  && <span style={{fontSize:11,color:th.textMuted,fontStyle:"italic"}}>💬 {stageData.remarks.slice(0,60)}{stageData.remarks.length>60?"…":""}</span>}
+          {stageData.checklist?.length > 0 && <span style={{fontSize:11,color:th.textMuted}}>✓ {stageData.checklist.filter(i=>i.status==="Done").length}/{stageData.checklist.length} items</span>}
         </div>
       )}
 
-      {/* Expanded body */}
       {expanded && (
         <div className="stage-foot">
-          {/* Done by + date */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <div>
               <div className="lbl">Done By</div>
@@ -712,11 +810,9 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
                 value={stageData.doneDate||""}
                 onChange={e=>onStageUpdate(clientId,periodKey,stage.key,"doneDate",e.target.value)}
                 onBlur={e=>onAudit(clientId,{type:"field",period:periodKey,stage:stage.label,field:"Done Date",to:e.target.value})}
-                style={{fontSize:12,colorScheme:"dark"}}/>
+                style={{fontSize:12}}/>
             </div>
           </div>
-
-          {/* Remarks */}
           <div>
             <div className="lbl">Remarks</div>
             <textarea className="inp" placeholder="e.g. Purchase received. Office expenses file pending."
@@ -725,13 +821,11 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
               onBlur={e=>e.target.value&&onAudit(clientId,{type:"field",period:periodKey,stage:stage.label,field:"Remarks",to:e.target.value})}
               rows={2} style={{fontSize:12,resize:"vertical"}}/>
           </div>
-
-          {/* Checklist (for stages that support it) */}
           {stage.hasChecklist && (
             <div>
               <div className="lbl" style={{marginBottom:8}}>{stage.label} Checklist</div>
               {(stageData.checklist||[]).length === 0 && (
-                <div style={{fontSize:12,color:"#334155",marginBottom:10,fontStyle:"italic"}}>No checklist items yet. Add items below.</div>
+                <div style={{fontSize:12,color:th.textFaintest,marginBottom:10,fontStyle:"italic"}}>No checklist items yet. Add items below.</div>
               )}
               <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
                 {(stageData.checklist||[]).map(item=>(
@@ -740,9 +834,9 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
                         const next=item.status==="Pending"?"Done":item.status==="Done"?"N/A":"Pending";
                         onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"status",next);
                       }}
-                      style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${STATUS_STYLES[item.status||"Pending"].dot}`,background:item.status==="Done"?STATUS_STYLES["Done"].dot:item.status==="N/A"?STATUS_STYLES["N/A"].dot:"transparent",cursor:"pointer",flexShrink:0,transition:"all .14s"}}
+                      style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${th.statusStyles[item.status||"Pending"].dot}`,background:item.status==="Done"?th.statusStyles["Done"].dot:item.status==="N/A"?th.statusStyles["N/A"].dot:"transparent",cursor:"pointer",flexShrink:0,transition:"all .14s"}}
                     />
-                    <span style={{flex:1,fontSize:12,color:item.status==="Done"?"#334155":"#CBD5E1",textDecoration:item.status==="Done"?"line-through":"none"}}>{item.label}</span>
+                    <span style={{flex:1,fontSize:12,color:item.status==="Done"?th.textFaintest:th.textMuted,textDecoration:item.status==="Done"?"line-through":"none"}}>{item.label}</span>
                     <input className="inp-sm" placeholder="Done by"
                       value={item.doneBy||""}
                       onChange={e=>onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"doneBy",e.target.value)}
@@ -750,9 +844,9 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
                     <input className="inp-sm" type="date"
                       value={item.doneDate||""}
                       onChange={e=>onChecklistItemUpdate(clientId,periodKey,stage.key,item.id,"doneDate",e.target.value)}
-                      style={{width:130,colorScheme:"dark"}}/>
+                      style={{width:130}}/>
                     <button onClick={()=>onDeleteChecklistItem(clientId,periodKey,stage.key,item.id)}
-                      style={{background:"transparent",border:"none",color:"#334155",cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}}>✕</button>
+                      style={{background:"transparent",border:"none",color:th.textFaintest,cursor:"pointer",fontSize:15,padding:"0 2px",lineHeight:1}}>✕</button>
                   </div>
                 ))}
               </div>
@@ -774,15 +868,15 @@ function StageBlock({ stage, stageData, clientId, periodKey, onStageUpdate, onAd
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
-function DashboardTable({ rows, onSelectClient, isOverdue }) {
+function DashboardTable({ rows, onSelectClient, isOverdue, th }) {
   if (rows.length === 0) return null;
   return (
-    <div style={{borderRadius:10,overflow:"hidden",border:isOverdue?"1px solid #7F1D1D":"1px solid #1E293B"}}>
-      <div style={{display:"grid",gridTemplateColumns:`1fr 70px repeat(${STAGES.length},1fr)`,background:isOverdue?"#1A0505":"#06080F",borderBottom:isOverdue?"1px solid #7F1D1D55":"1px solid #1E293B",padding:"8px 14px",gap:6}}>
-        <div className="lbl" style={{margin:0,color:isOverdue?"#FCA5A5":"#475569"}}>Client</div>
-        <div className="lbl" style={{margin:0,color:isOverdue?"#FCA5A5":"#475569"}}>Period</div>
+    <div style={{borderRadius:10,overflow:"hidden",border:isOverdue?"1px solid #7F1D1D":`1px solid ${th.border}`}}>
+      <div style={{display:"grid",gridTemplateColumns:`1fr 70px repeat(${STAGES.length},1fr)`,background:isOverdue?"#1A050588":th.bgStageFoot,borderBottom:isOverdue?"1px solid #7F1D1D55":`1px solid ${th.border}`,padding:"8px 14px",gap:6}}>
+        <div className="lbl" style={{margin:0,color:isOverdue?"#FCA5A5":th.textFaint}}>Client</div>
+        <div className="lbl" style={{margin:0,color:isOverdue?"#FCA5A5":th.textFaint}}>Period</div>
         {STAGES.map(s=>(
-          <div key={s.key} className="lbl" style={{margin:0,textAlign:"center",fontSize:9,color:isOverdue?"#FCA5A5":"#475569"}}>{s.label}</div>
+          <div key={s.key} className="lbl" style={{margin:0,textAlign:"center",fontSize:9,color:isOverdue?"#FCA5A5":th.textFaint}}>{s.label}</div>
         ))}
       </div>
       {rows.map(row=>{
@@ -791,22 +885,22 @@ function DashboardTable({ rows, onSelectClient, isOverdue }) {
         return (
           <div key={`${row.client.id}-${row.periodKey}`}
             onClick={()=>onSelectClient(row.client,row.periodKey)}
-            style={{display:"grid",gridTemplateColumns:`1fr 70px repeat(${STAGES.length},1fr)`,padding:"9px 14px",gap:6,borderBottom:isOverdue?"1px solid #7F1D1D22":"1px solid #0F172A",cursor:"pointer",transition:"background .14s",alignItems:"center",background:isOverdue?"#130303":"transparent"}}
-            onMouseEnter={e=>e.currentTarget.style.background=isOverdue?"#1A0808":"#111827"}
+            style={{display:"grid",gridTemplateColumns:`1fr 70px repeat(${STAGES.length},1fr)`,padding:"9px 14px",gap:6,borderBottom:isOverdue?"1px solid #7F1D1D22":`1px solid ${th.borderRowSep}`,cursor:"pointer",transition:"background .14s",alignItems:"center",background:isOverdue?"#130303":"transparent"}}
+            onMouseEnter={e=>e.currentTarget.style.background=isOverdue?"#1A0808":th.bgHover}
             onMouseLeave={e=>e.currentTarget.style.background=isOverdue?"#130303":"transparent"}>
             <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
               <div style={{width:26,height:26,borderRadius:7,background:avBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{initials}</div>
               <div style={{minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:600,color:isOverdue?"#FCA5A5":"#F1F5F9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.client.name}</div>
-                <div style={{fontSize:10,color:isOverdue?"#7F1D1D":"#334155"}}>{row.client.entity}</div>
+                <div style={{fontSize:12,fontWeight:600,color:isOverdue?"#FCA5A5":th.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.client.name}</div>
+                <div style={{fontSize:10,color:isOverdue?"#7F1D1D":th.textFaintest}}>{row.client.entity}</div>
               </div>
             </div>
-            <div style={{fontSize:11,fontWeight:700,color:isOverdue?"#F87171":"#475569"}}>{row.periodKey}</div>
+            <div style={{fontSize:11,fontWeight:700,color:isOverdue?"#F87171":th.textFaint}}>{row.periodKey}</div>
             {STAGES.map(s=>{
               const st=row.periodData[s.key]?.status||"Pending";
-              const dot=STATUS_STYLES[st].dot;
-              const bg=STATUS_STYLES[st].bg;
-              const border=STATUS_STYLES[st].border;
+              const dot=th.statusStyles[st].dot;
+              const bg=th.statusStyles[st].bg;
+              const border=th.statusStyles[st].border;
               return (
                 <div key={s.key} style={{display:"flex",justifyContent:"center"}}>
                   <div title={st} style={{width:22,height:22,borderRadius:"50%",background:bg,border:`2px solid ${border}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -822,24 +916,24 @@ function DashboardTable({ rows, onSelectClient, isOverdue }) {
   );
 }
 
-function DashboardSection({ title, icon, rows, onSelectClient, isOverdue, defaultOpen=true }) {
+function DashboardSection({ title, icon, rows, onSelectClient, isOverdue, th, defaultOpen=true }) {
   const [open, setOpen] = useState(defaultOpen);
   if (rows.length === 0) return null;
   return (
     <div style={{marginBottom:14}}>
       <button onClick={()=>setOpen(!open)}
-        style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:isOverdue?"#1A050588":"#111827",border:isOverdue?"1px solid #7F1D1D":"1px solid #1E293B",borderRadius:open?"8px 8px 0 0":"8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+        style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:isOverdue?"#1A050588":th.bgCard,border:isOverdue?"1px solid #7F1D1D":`1px solid ${th.border}`,borderRadius:open?"8px 8px 0 0":"8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
         <span style={{fontSize:14}}>{icon}</span>
-        <span style={{flex:1,fontSize:12,fontWeight:700,color:isOverdue?"#FCA5A5":"#94A3B8",textAlign:"left"}}>{title}</span>
-        <span style={{fontSize:11,fontWeight:600,padding:"2px 10px",borderRadius:20,background:isOverdue?"#7F1D1D55":"#1E293B",color:isOverdue?"#FCA5A5":"#475569"}}>{rows.length} period{rows.length!==1?"s":""}</span>
-        <span style={{fontSize:11,color:isOverdue?"#7F1D1D":"#334155"}}>{open?"▲":"▼"}</span>
+        <span style={{flex:1,fontSize:12,fontWeight:700,color:isOverdue?"#FCA5A5":th.textMuted,textAlign:"left"}}>{title}</span>
+        <span style={{fontSize:11,fontWeight:600,padding:"2px 10px",borderRadius:20,background:isOverdue?"#7F1D1D55":th.border,color:isOverdue?"#FCA5A5":th.textFaint}}>{rows.length} period{rows.length!==1?"s":""}</span>
+        <span style={{fontSize:11,color:isOverdue?"#7F1D1D":th.textFaintest}}>{open?"▲":"▼"}</span>
       </button>
-      {open && <DashboardTable rows={rows} onSelectClient={onSelectClient} isOverdue={isOverdue}/>}
+      {open && <DashboardTable rows={rows} onSelectClient={onSelectClient} isOverdue={isOverdue} th={th}/>}
     </div>
   );
 }
 
-function Dashboard({ clients, activeFY, onSelectClient }) {
+function Dashboard({ clients, activeFY, th, onSelectClient }) {
   const now         = new Date();
   const nowMonthIdx = now.getMonth() >= 3 ? now.getMonth()-3 : now.getMonth()+9;
   const curMonthKey = MONTHS[nowMonthIdx];
@@ -924,15 +1018,15 @@ function Dashboard({ clients, activeFY, onSelectClient }) {
     <div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
         <div>
-          <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:20,fontWeight:700,color:"#F1F5F9",marginBottom:3}}>Dashboard</h2>
-          <div style={{fontSize:12,color:"#475569"}}>{activeFY} — as of {curMonthKey} {now.getFullYear()}</div>
+          <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:20,fontWeight:700,color:th.textPrimary,marginBottom:3}}>Dashboard</h2>
+          <div style={{fontSize:12,color:th.textFaint}}>{activeFY} — as of {curMonthKey} {now.getFullYear()}</div>
         </div>
         {totalOverdue > 0 && (
           <div style={{background:"#7F1D1D33",border:"1px solid #7F1D1D",borderRadius:10,padding:"8px 16px",display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:18}}>🚨</span>
             <div>
               <div style={{fontSize:13,fontWeight:700,color:"#FCA5A5"}}>{totalOverdue} Overdue Period{totalOverdue!==1?"s":""}</div>
-              <div style={{fontSize:11,color:"#7F1D1D"}}>Requires immediate attention</div>
+              <div style={{fontSize:11,color:"#F87171"}}>Requires immediate attention</div>
             </div>
           </div>
         )}
@@ -943,7 +1037,7 @@ function Dashboard({ clients, activeFY, onSelectClient }) {
         {CARDS.map(c=>(
           <div key={c.label} style={{background:c.bg,border:`1px solid ${c.border}`,borderRadius:12,padding:"13px 15px"}}>
             <div style={{fontSize:22,fontWeight:700,color:c.color,marginBottom:3}}>{c.value}</div>
-            <div style={{fontSize:10,color:"#475569",fontWeight:600,textTransform:"uppercase",letterSpacing:".7px"}}>{c.label}</div>
+            <div style={{fontSize:10,color:th.textFaint,fontWeight:600,textTransform:"uppercase",letterSpacing:".7px"}}>{c.label}</div>
           </div>
         ))}
       </div>
@@ -952,11 +1046,10 @@ function Dashboard({ clients, activeFY, onSelectClient }) {
         <div className="card" style={{padding:40,textAlign:"center"}}>
           <div style={{fontSize:32,marginBottom:10}}>🎉</div>
           <div style={{fontSize:14,fontWeight:600,color:"#22C55E"}}>All caught up!</div>
-          <div style={{fontSize:12,color:"#334155",marginTop:4}}>No pending work for {activeFY}</div>
+          <div style={{fontSize:12,color:th.textFaint,marginTop:4}}>No pending work for {activeFY}</div>
         </div>
       ) : (
         <div>
-          {/* Overdue section */}
           {totalOverdue > 0 && (
             <div style={{marginBottom:22}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
@@ -964,23 +1057,21 @@ function Dashboard({ clients, activeFY, onSelectClient }) {
                 <span style={{fontSize:11,fontWeight:700,color:"#F87171",textTransform:"uppercase",letterSpacing:"1px"}}>⚠ Overdue — Past Periods Not Closed</span>
                 <div style={{height:1,flex:1,background:"#7F1D1D55"}}/>
               </div>
-              <DashboardSection title="Monthly Clients — Overdue" icon="📅" rows={overdueMonthly} onSelectClient={onSelectClient} isOverdue={true}/>
-              <DashboardSection title="Quarterly Clients — Overdue" icon="📆" rows={overdueQuarterly} onSelectClient={onSelectClient} isOverdue={true}/>
-              <DashboardSection title="Yearly Clients — Overdue" icon="🗓" rows={overdueYearly} onSelectClient={onSelectClient} isOverdue={true}/>
+              <DashboardSection title="Monthly Clients — Overdue"   icon="📅" rows={overdueMonthly}   onSelectClient={onSelectClient} isOverdue={true}  th={th}/>
+              <DashboardSection title="Quarterly Clients — Overdue" icon="📆" rows={overdueQuarterly} onSelectClient={onSelectClient} isOverdue={true}  th={th}/>
+              <DashboardSection title="Yearly Clients — Overdue"    icon="🗓" rows={overdueYearly}    onSelectClient={onSelectClient} isOverdue={true}  th={th}/>
             </div>
           )}
-
-          {/* Current period section */}
           {totalCurrent > 0 && (
             <div>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                <div style={{height:1,flex:1,background:"#1E293B"}}/>
-                <span style={{fontSize:11,fontWeight:700,color:"#475569",textTransform:"uppercase",letterSpacing:"1px"}}>📅 Current Period — {curMonthKey}</span>
-                <div style={{height:1,flex:1,background:"#1E293B"}}/>
+                <div style={{height:1,flex:1,background:th.border}}/>
+                <span style={{fontSize:11,fontWeight:700,color:th.textFaint,textTransform:"uppercase",letterSpacing:"1px"}}>📅 Current Period — {curMonthKey}</span>
+                <div style={{height:1,flex:1,background:th.border}}/>
               </div>
-              <DashboardSection title="Monthly Clients" icon="📅" rows={currentMonthly} onSelectClient={onSelectClient} isOverdue={false}/>
-              <DashboardSection title="Quarterly Clients" icon="📆" rows={currentQuarterly} onSelectClient={onSelectClient} isOverdue={false}/>
-              <DashboardSection title="Yearly Clients" icon="🗓" rows={currentYearly} onSelectClient={onSelectClient} isOverdue={false}/>
+              <DashboardSection title="Monthly Clients"   icon="📅" rows={currentMonthly}   onSelectClient={onSelectClient} isOverdue={false} th={th}/>
+              <DashboardSection title="Quarterly Clients" icon="📆" rows={currentQuarterly} onSelectClient={onSelectClient} isOverdue={false} th={th}/>
+              <DashboardSection title="Yearly Clients"    icon="🗓" rows={currentYearly}    onSelectClient={onSelectClient} isOverdue={false} th={th}/>
             </div>
           )}
         </div>
@@ -991,9 +1082,9 @@ function Dashboard({ clients, activeFY, onSelectClient }) {
 
 // ── Communication Log ─────────────────────────────────────────────────────────
 
-function CommunicationLog({ clientId, entries, onAdd, onDelete }) {
+function CommunicationLog({ clientId, entries, th, onAdd, onDelete }) {
   const today = new Date().toISOString().split("T")[0];
-  const [form, setForm]   = useState({ date: today, note: "", addedBy: "" });
+  const [form, setForm]     = useState({ date: today, note: "", addedBy: "" });
   const [adding, setAdding] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
 
@@ -1007,21 +1098,20 @@ function CommunicationLog({ clientId, entries, onAdd, onDelete }) {
   return (
     <div className="card" style={{padding:18, marginTop:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div className="lbl" style={{color:"#2563EB",margin:0}}>💬 Communication Log</div>
+        <div className="lbl" style={{color:th.accent,margin:0}}>💬 Communication Log</div>
         <button className="btn-p" style={{padding:"5px 13px",fontSize:12}} onClick={()=>setAdding(!adding)}>
           {adding ? "Cancel" : "+ Add Entry"}
         </button>
       </div>
 
-      {/* Add entry form */}
       {adding && (
-        <div style={{background:"#06080F",border:"1px solid #1E293B",borderRadius:9,padding:13,marginBottom:14,display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{background:th.bgStageFoot,border:`1px solid ${th.border}`,borderRadius:9,padding:13,marginBottom:14,display:"flex",flexDirection:"column",gap:10}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             <div>
               <div className="lbl">Date</div>
               <input className="inp" type="date" value={form.date}
                 onChange={e=>setForm(f=>({...f,date:e.target.value}))}
-                style={{fontSize:12,colorScheme:"dark"}}/>
+                style={{fontSize:12}}/>
             </div>
             <div>
               <div className="lbl">Added By</div>
@@ -1047,23 +1137,22 @@ function CommunicationLog({ clientId, entries, onAdd, onDelete }) {
         </div>
       )}
 
-      {/* Entries list */}
       {entries.length === 0 && !adding && (
-        <div style={{fontSize:12,color:"#334155",fontStyle:"italic",textAlign:"center",padding:"14px 0"}}>
+        <div style={{fontSize:12,color:th.textFaintest,fontStyle:"italic",textAlign:"center",padding:"14px 0"}}>
           No communication entries yet.
         </div>
       )}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {entries.map(entry => (
-          <div key={entry.id} style={{display:"flex",gap:12,padding:"10px 13px",background:"#06080F",borderRadius:8,border:"1px solid #1E293B",alignItems:"flex-start"}}>
+          <div key={entry.id} style={{display:"flex",gap:12,padding:"10px 13px",background:th.bgStageFoot,borderRadius:8,border:`1px solid ${th.border}`,alignItems:"flex-start"}}>
             <div style={{flexShrink:0,marginTop:2}}>
-              <div style={{width:8,height:8,borderRadius:"50%",background:"#2563EB",marginTop:4}}/>
+              <div style={{width:8,height:8,borderRadius:"50%",background:th.accent,marginTop:4}}/>
             </div>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.6}}>{entry.note}</div>
+              <div style={{fontSize:12,color:th.textMuted,lineHeight:1.6}}>{entry.note}</div>
               <div style={{display:"flex",gap:12,marginTop:5}}>
-                <span style={{fontSize:11,color:"#475569"}}>📅 {entry.date}</span>
-                <span style={{fontSize:11,color:"#475569"}}>👤 {entry.addedBy}</span>
+                <span style={{fontSize:11,color:th.textFaint}}>📅 {entry.date}</span>
+                <span style={{fontSize:11,color:th.textFaint}}>👤 {entry.addedBy}</span>
               </div>
             </div>
             {confirmId === entry.id
@@ -1072,7 +1161,7 @@ function CommunicationLog({ clientId, entries, onAdd, onDelete }) {
                   Confirm?
                 </button>
               : <button onClick={()=>setConfirmId(entry.id)}
-                  style={{background:"transparent",border:"none",color:"#334155",cursor:"pointer",fontSize:14,padding:"0 2px",flexShrink:0}}>✕</button>
+                  style={{background:"transparent",border:"none",color:th.textFaintest,cursor:"pointer",fontSize:14,padding:"0 2px",flexShrink:0}}>✕</button>
             }
           </div>
         ))}
@@ -1083,38 +1172,36 @@ function CommunicationLog({ clientId, entries, onAdd, onDelete }) {
 
 // ── Audit Log ─────────────────────────────────────────────────────────────────
 
-function AuditLog({ entries }) {
+function AuditLog({ entries, th }) {
   const fmt = (ts) => {
     const d = new Date(ts);
     return d.toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" }) +
       " " + d.toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true });
   };
-
   const describe = (e) => {
-    if (e.type === "status")         return `${e.stage} [${e.period}] changed from "${e.from}" → "${e.to}"`;
-    if (e.type === "field")          return `${e.stage} [${e.period}] — ${e.field} set to "${e.to}"`;
-    if (e.type === "checklist_add")  return `${e.stage} [${e.period}] — checklist item added: "${e.item}"`;
+    if (e.type === "status")           return `${e.stage} [${e.period}] changed from "${e.from}" → "${e.to}"`;
+    if (e.type === "field")            return `${e.stage} [${e.period}] — ${e.field} set to "${e.to}"`;
+    if (e.type === "checklist_add")    return `${e.stage} [${e.period}] — checklist item added: "${e.item}"`;
     if (e.type === "checklist_delete") return `${e.stage} [${e.period}] — checklist item removed: "${e.item}"`;
     return JSON.stringify(e);
   };
-
   return (
     <div className="card" style={{padding:18,marginTop:14}}>
-      <div className="lbl" style={{color:"#2563EB",marginBottom:14}}>🕓 Audit Trail</div>
+      <div className="lbl" style={{color:th.accent,marginBottom:14}}>🕓 Audit Trail</div>
       {entries.length === 0 && (
-        <div style={{fontSize:12,color:"#334155",fontStyle:"italic",textAlign:"center",padding:"14px 0"}}>
+        <div style={{fontSize:12,color:th.textFaintest,fontStyle:"italic",textAlign:"center",padding:"14px 0"}}>
           No changes recorded yet.
         </div>
       )}
       <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:340,overflowY:"auto"}}>
         {entries.map(e => (
-          <div key={e.id} style={{display:"flex",gap:12,padding:"9px 12px",background:"#06080F",borderRadius:7,border:"1px solid #1E293B",alignItems:"flex-start"}}>
-            <div style={{width:7,height:7,borderRadius:"50%",background:"#475569",flexShrink:0,marginTop:5}}/>
+          <div key={e.id} style={{display:"flex",gap:12,padding:"9px 12px",background:th.bgStageFoot,borderRadius:7,border:`1px solid ${th.border}`,alignItems:"flex-start"}}>
+            <div style={{width:7,height:7,borderRadius:"50%",background:th.textFaint,flexShrink:0,marginTop:5}}/>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:12,color:"#CBD5E1"}}>{describe(e)}</div>
+              <div style={{fontSize:12,color:th.textMuted}}>{describe(e)}</div>
               <div style={{display:"flex",gap:12,marginTop:4}}>
-                <span style={{fontSize:10,color:"#334155"}}>👤 {e.actor}</span>
-                <span style={{fontSize:10,color:"#334155"}}>🕓 {fmt(e.ts)}</span>
+                <span style={{fontSize:10,color:th.textFaint}}>👤 {e.actor}</span>
+                <span style={{fontSize:10,color:th.textFaint}}>🕓 {fmt(e.ts)}</span>
               </div>
             </div>
           </div>
@@ -1126,15 +1213,15 @@ function AuditLog({ entries }) {
 
 // ── Client Form ───────────────────────────────────────────────────────────────
 
-function ClientForm({ client, onSave, onCancel }) {
+function ClientForm({ client, onSave, onCancel, th }) {
   const [form, setForm] = useState(client);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const isNew = !client.name;
   return (
     <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&onCancel()}>
       <div className="modal">
-        <div style={{padding:"18px 22px",borderBottom:"1px solid #1E293B",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:17,color:"#F1F5F9"}}>{isNew?"Add New Client":"Edit Client"}</h2>
+        <div style={{padding:"18px 22px",borderBottom:`1px solid ${th.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:17,color:th.textPrimary}}>{isNew?"Add New Client":"Edit Client"}</h2>
           <button className="btn-g" onClick={onCancel} style={{padding:"5px 10px"}}>✕</button>
         </div>
         <div style={{padding:"18px 22px",display:"flex",flexDirection:"column",gap:13}}>
@@ -1153,7 +1240,7 @@ function ClientForm({ client, onSave, onCancel }) {
           </div>
           <div><div className="lbl">Notes</div><textarea className="inp" value={form.notes} onChange={e=>set("notes",e.target.value)} placeholder="Any important notes…" rows={3} style={{resize:"vertical"}}/></div>
         </div>
-        <div style={{padding:"13px 22px",borderTop:"1px solid #1E293B",display:"flex",justifyContent:"flex-end",gap:8}}>
+        <div style={{padding:"13px 22px",borderTop:`1px solid ${th.border}`,display:"flex",justifyContent:"flex-end",gap:8}}>
           <button className="btn-g" onClick={onCancel}>Cancel</button>
           <button className="btn-p" onClick={()=>form.name.trim()&&onSave(form)} style={{opacity:form.name.trim()?1:.4}}>{isNew?"Add Client":"Save Changes"}</button>
         </div>
@@ -1195,7 +1282,7 @@ function downloadAllAuditLog(clients) {
 
 // ── Export Modal ──────────────────────────────────────────────────────────────
 
-function ExportModal({ clients, onClose }) {
+function ExportModal({ clients, onClose, th }) {
   const allFYs = fyList();
   const [selClients,  setSelClients]  = useState(clients.map(c => c.id));
   const [selFYs,      setSelFYs]      = useState([currentFY()]);
