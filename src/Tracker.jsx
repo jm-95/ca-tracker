@@ -75,6 +75,10 @@ const DARK_THEME = {
   toastOkTxt:  "#86EFAC",
   toastErr:    "#7F1D1D",
   toastErrTxt: "#FCA5A5",
+  tagEntity:   { bg:"#1E3A5F33", border:"#1E3A5F", color:"#93C5FD" },
+  tagFreq:     { bg:"#1C3B2C33", border:"#1C3B2C", color:"#6EE7B7" },
+  btnDelete:   { bg:"#7F1D1D22", border:"#7F1D1D55", color:"#FCA5A5", bgHover:"#7F1D1D55" },
+  gridColors:  { "Pending":"#78350F", "In Progress":"#1D4ED8", "Done":"#166534", "N/A":"#1E293B" },
   statusStyles: {
     "Pending":     { bg:"#2A1A0588", border:"#92400E", color:"#FCD34D", dot:"#F59E0B" },
     "In Progress": { bg:"#0C234088", border:"#1E40AF", color:"#93C5FD", dot:"#3B82F6" },
@@ -115,6 +119,10 @@ const LIGHT_THEME = {
   toastOkTxt:  "#166534",
   toastErr:    "#FEE2E2",
   toastErrTxt: "#991B1B",
+  tagEntity:   { bg:"#DBEAFE", border:"#93C5FD", color:"#1D4ED8" },
+  tagFreq:     { bg:"#DCFCE7", border:"#86EFAC", color:"#166534" },
+  btnDelete:   { bg:"#FEE2E2", border:"#FCA5A5", color:"#991B1B", bgHover:"#FECACA" },
+  gridColors:  { "Pending":"#D97706", "In Progress":"#2563EB", "Done":"#16A34A", "N/A":"#94A3B8" },
   statusStyles: {
     "Pending":     { bg:"#FEF3C7", border:"#FCD34D", color:"#92400E", dot:"#D97706" },
     "In Progress": { bg:"#DBEAFE", border:"#93C5FD", color:"#1D4ED8", dot:"#3B82F6" },
@@ -559,7 +567,7 @@ export default function Tracker({ session }) {
               const avBg=["#1E3A5F","#1C3B2C","#3B1D6E","#4A1942","#2D1B00","#1A2E4A"][c.name.charCodeAt(0)%6];
               return (
                 <div key={c.id} className={`crow${selected?.id===c.id?" act":""}`} onClick={()=>selectClient(c)}>
-                  <div className="av" style={{background:avBg,width:36,height:36,borderRadius:9,fontSize:13}}>{initials}</div>
+                  <div className="av" style={{background:avBg,width:36,height:36,borderRadius:9,fontSize:13,border:`1px solid ${th.border}`}}>{initials}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontWeight:600,fontSize:13,color:th.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
                     <div style={{fontSize:11,color:th.textFaint,marginBottom:5}}>{c.entity} · {c.frequency}</div>
@@ -652,12 +660,12 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
     <div>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",gap:13}}>
-          <div className="av" style={{background:avBg,width:48,height:48,borderRadius:12,fontSize:17}}>{initials}</div>
+          <div className="av" style={{background:avBg,width:48,height:48,borderRadius:12,fontSize:17,border:`2px solid ${th.border}`}}>{initials}</div>
           <div>
             <h1 style={{fontFamily:"'Libre Baskerville',serif",fontSize:22,fontWeight:700,color:th.textPrimary,lineHeight:1.2}}>{client.name}</h1>
             <div style={{display:"flex",gap:6,marginTop:5,flexWrap:"wrap"}}>
-              <span className="tag" style={{background:th.accent+"22",border:`1px solid ${th.accent}66`,color:th.accent}}>{client.entity}</span>
-              <span className="tag" style={{background:"#1C3B2C33",border:"1px solid #1C3B2C",color:"#6EE7B7"}}>{client.frequency}</span>
+              <span className="tag" style={{background:th.tagEntity.bg,border:`1px solid ${th.tagEntity.border}`,color:th.tagEntity.color}}>{client.entity}</span>
+              <span className="tag" style={{background:th.tagFreq.bg,border:`1px solid ${th.tagFreq.border}`,color:th.tagFreq.color}}>{client.frequency}</span>
               <span className="tag" style={{background:ss.bg,border:`1px solid ${ss.border}`,color:ss.color}}>
                 <span style={{width:6,height:6,borderRadius:"50%",background:ss.dot,flexShrink:0}}/>
                 {activePeriod}: {st}
@@ -669,8 +677,14 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
           <button className="btn-g" onClick={()=>setShowAudit(!showAudit)}>🕓 History</button>
           <button className="btn-g" onClick={onEdit}>✏ Edit</button>
           {!confirmDel
-            ? <button className="btn-d" onClick={()=>setConfirmDel(true)}>🗑 Delete</button>
-            : <button className="btn-d" onClick={onDelete} style={{background:"#7F1D1D55"}}>Confirm?</button>}
+            ? <button onClick={()=>setConfirmDel(true)}
+                style={{background:th.btnDelete.bg,color:th.btnDelete.color,border:`1px solid ${th.btnDelete.border}`,borderRadius:8,padding:"8px 14px",fontFamily:"'DM Sans',sans-serif",fontSize:13,cursor:"pointer",transition:"all .18s"}}>
+                🗑 Delete
+              </button>
+            : <button onClick={onDelete}
+                style={{background:th.btnDelete.bgHover,color:th.btnDelete.color,border:`1px solid ${th.btnDelete.border}`,borderRadius:8,padding:"8px 14px",fontFamily:"'DM Sans',sans-serif",fontSize:13,cursor:"pointer"}}>
+                Confirm?
+              </button>}
         </div>
       </div>
 
@@ -700,9 +714,10 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
             {periods.map(p=>{
               const ost=overallStatus(fyData[p.key]);
               const isAct=activePeriod===p.key;
+              const gc=th.gridColors[ost];
               return (
                 <div key={p.key} className="pgrid-cell" onClick={()=>setActivePeriod(p.key)}
-                  style={{background:GRID_COLORS[ost]+(isAct?"FF":"55"),border:isAct?`2px solid ${th.statusStyles[ost].dot}`:"2px solid transparent",color:isAct?"#fff":"#94A3B8"}}>
+                  style={{background:isAct?gc:gc+"55",border:isAct?`2px solid ${th.statusStyles[ost].dot}`:"2px solid transparent",color:isAct?"#fff":th.textFaint}}>
                   {p.key}
                 </div>
               );
@@ -711,7 +726,7 @@ function DetailView({ client, activeFY, activePeriod, setActivePeriod, th, onEdi
           <div style={{display:"flex",gap:10,marginTop:10,flexWrap:"wrap"}}>
             {["Pending","In Progress","Done"].map(s=>(
               <div key={s} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:th.textFaint}}>
-                <div style={{width:9,height:9,borderRadius:2,background:GRID_COLORS[s]}}/>{s}
+                <div style={{width:9,height:9,borderRadius:2,background:th.gridColors[s]}}/>{s}
               </div>
             ))}
           </div>
@@ -980,7 +995,7 @@ function DashboardTable({ rows, onSelectClient, isOverdue, th }) {
             onMouseEnter={e=>e.currentTarget.style.background=isOverdue?"#1A0808":th.bgHover}
             onMouseLeave={e=>e.currentTarget.style.background=isOverdue?"#130303":"transparent"}>
             <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-              <div style={{width:26,height:26,borderRadius:7,background:avBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{initials}</div>
+              <div style={{width:26,height:26,borderRadius:7,background:avBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0,border:`1px solid ${th.border}`}}>{initials}</div>
               <div style={{minWidth:0}}>
                 <div style={{fontSize:12,fontWeight:600,color:isOverdue?"#FCA5A5":th.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.client.name}</div>
                 <div style={{fontSize:10,color:isOverdue?"#7F1D1D":th.textFaintest}}>{row.client.entity}</div>
