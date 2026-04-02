@@ -1707,7 +1707,7 @@ function ExportModal({ clients, onClose, th }) {
   const allFYs = fyList();
   const [selClients,  setSelClients]  = useState(clients.map(c => c.id));
   const [selFYs,      setSelFYs]      = useState([currentFY()]);
-  const [periodMode,  setPeriodMode]  = useState("all"); // "all" | "months" | "quarters"
+  const [periodMode,  setPeriodMode]  = useState("all");
   const [selPeriods,  setSelPeriods]  = useState([]);
   const [inclCommLog, setInclCommLog] = useState(true);
   const [exporting,   setExporting]   = useState(false);
@@ -1719,9 +1719,9 @@ function ExportModal({ clients, onClose, th }) {
   const allCliSel    = selClients.length === clients.length;
   const togAllCli    = () => setSelClients(allCliSel ? [] : clients.map(c => c.id));
 
-  const allFreqs    = [...new Set(clients.filter(c => selClients.includes(c.id)).map(c => c.frequency))];
-  const hasMonthly  = allFreqs.includes("Monthly");
-  const hasQuarterly= allFreqs.includes("Quarterly");
+  const allFreqs     = [...new Set(clients.filter(c => selClients.includes(c.id)).map(c => c.frequency))];
+  const hasMonthly   = allFreqs.includes("Monthly");
+  const hasQuarterly = allFreqs.includes("Quarterly");
 
   const doExport = async () => {
     if (!selClients.length || !selFYs.length) return;
@@ -1746,7 +1746,6 @@ function ExportModal({ clients, onClose, th }) {
     for (const client of chosenClients) {
       setProgress(`Exporting ${client.name}…`);
       const wb = XLSX.utils.book_new();
-
       for (const fy of selFYs) {
         const allPeriods = periodsForClient(client);
         let periodsToExport = allPeriods;
@@ -1781,7 +1780,6 @@ function ExportModal({ clients, onClose, th }) {
           XLSX.utils.book_append_sheet(wb, ws, sheetName);
         }
       }
-
       if (inclCommLog) {
         const commRows = [["Date","Note","Added By"]];
         (client.commLog || []).forEach(e => commRows.push([e.date, e.note, e.addedBy]));
@@ -1789,7 +1787,6 @@ function ExportModal({ clients, onClose, th }) {
         ws["!cols"] = [{ wch:14 }, { wch:50 }, { wch:14 }];
         XLSX.utils.book_append_sheet(wb, ws, "Communication Log");
       }
-
       const wbBuf   = XLSX.write(wb, { bookType:"xlsx", type:"array" });
       const safeName= client.name.replace(/[^\w\s]/g,"").replace(/\s+/g,"_");
       zip.file(`${safeName}.xlsx`, wbBuf);
@@ -1799,18 +1796,19 @@ function ExportModal({ clients, onClose, th }) {
     const blob = await zip.generateAsync({ type:"blob" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
-    a.href = url; a.download = "CA_Tracker_Export.zip"; a.click();
+    a.href = url; a.download = "MSA_Tracker_Export.zip"; a.click();
     URL.revokeObjectURL(url);
     setExporting(false); setProgress(""); onClose();
   };
 
+  // Theme-aware styles
   const S = {
     row:  { display:"flex", alignItems:"center", gap:8, cursor:"pointer", padding:"5px 8px", borderRadius:6, transition:"background .12s" },
-    chk:  { width:14, height:14, borderRadius:3, border:"1px solid #1E293B", background:"#0A0F1E", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, color:"#fff" },
-    chkOn:{ background:"#2563EB", borderColor:"#2563EB" },
-    lbl:  { fontSize:12, color:"#CBD5E1" },
+    chk:  { width:14, height:14, borderRadius:3, border:`1px solid ${th.border}`, background:th.bgInput, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, color:th.textPrimary },
+    chkOn:{ background:th.accent, borderColor:th.accent, color:"#fff" },
+    lbl:  { fontSize:12, color:th.textMuted },
     sec:  { marginBottom:18 },
-    sh:   { fontSize:10, fontWeight:700, letterSpacing:".8px", textTransform:"uppercase", color:"#475569", marginBottom:8 },
+    sh:   { fontSize:10, fontWeight:700, letterSpacing:".8px", textTransform:"uppercase", color:th.textFaint, marginBottom:8 },
   };
   const Chk = ({ on, onClick, label, style }) => (
     <div style={{ ...S.row, ...style }} onClick={onClick}>
@@ -1822,21 +1820,23 @@ function ExportModal({ clients, onClose, th }) {
   return (
     <div className="modal-bg" onClick={e => e.target === e.currentTarget && !exporting && onClose()}>
       <div className="modal" style={{ maxWidth:700 }}>
-        <div style={{padding:"16px 22px",borderBottom:"1px solid #1E293B",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        {/* Header */}
+        <div style={{padding:"16px 22px",borderBottom:`1px solid ${th.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
-            <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:16,color:"#F1F5F9"}}>📤 Export Data</h2>
-            <p style={{fontSize:11,color:"#475569",marginTop:2}}>One Excel file per client, bundled into a single ZIP download.</p>
+            <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:16,color:th.textPrimary}}>📤 Export Data</h2>
+            <p style={{fontSize:11,color:th.textFaint,marginTop:2}}>One Excel file per client, bundled into a single ZIP download.</p>
           </div>
           {!exporting && <button className="btn-g" onClick={onClose} style={{padding:"5px 10px"}}>✕</button>}
         </div>
 
+        {/* Body */}
         <div style={{padding:"18px 22px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:22,maxHeight:"62vh",overflowY:"auto"}}>
           {/* Left column */}
           <div>
             <div style={S.sec}>
               <div style={S.sh}>Clients</div>
               <Chk on={allCliSel} onClick={togAllCli} label="Select All"
-                style={{marginBottom:6,paddingBottom:8,borderBottom:"1px solid #1E293B"}}/>
+                style={{marginBottom:6,paddingBottom:8,borderBottom:`1px solid ${th.border}`}}/>
               <div style={{maxHeight:170,overflowY:"auto",display:"flex",flexDirection:"column",gap:1}}>
                 {clients.map(c => (
                   <Chk key={c.id} on={selClients.includes(c.id)} onClick={() => toggleClient(c.id)} label={c.name}/>
@@ -1869,14 +1869,14 @@ function ExportModal({ clients, onClose, th }) {
 
               {periodMode === "months" && hasMonthly && (
                 <div>
-                  <div style={{fontSize:10,color:"#334155",marginBottom:6}}>Select months:</div>
+                  <div style={{fontSize:10,color:th.textFaintest,marginBottom:6}}>Select months:</div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
                     {MONTHS.map(m => (
                       <div key={m} onClick={() => togglePeriod(m)}
                         style={{padding:"4px 0",borderRadius:5,fontSize:11,fontWeight:600,cursor:"pointer",textAlign:"center",
-                          background:selPeriods.includes(m)?"#1E3A5F":"#0A0F1E",
-                          border:`1px solid ${selPeriods.includes(m)?"#2563EB":"#1E293B"}`,
-                          color:selPeriods.includes(m)?"#93C5FD":"#475569"}}>
+                          background:selPeriods.includes(m)?th.accent+"22":th.bgInput,
+                          border:`1px solid ${selPeriods.includes(m)?th.accent:th.border}`,
+                          color:selPeriods.includes(m)?th.accent:th.textFaint}}>
                         {m}
                       </div>
                     ))}
@@ -1886,14 +1886,14 @@ function ExportModal({ clients, onClose, th }) {
 
               {periodMode === "quarters" && hasQuarterly && (
                 <div>
-                  <div style={{fontSize:10,color:"#334155",marginBottom:6}}>Select quarters:</div>
+                  <div style={{fontSize:10,color:th.textFaintest,marginBottom:6}}>Select quarters:</div>
                   <div style={{display:"flex",flexDirection:"column",gap:4}}>
                     {QUARTERS.map(q => (
                       <div key={q} onClick={() => togglePeriod(q)}
                         style={{padding:"6px 10px",borderRadius:5,fontSize:11,fontWeight:600,cursor:"pointer",
-                          background:selPeriods.includes(q)?"#1E3A5F":"#0A0F1E",
-                          border:`1px solid ${selPeriods.includes(q)?"#2563EB":"#1E293B"}`,
-                          color:selPeriods.includes(q)?"#93C5FD":"#475569"}}>
+                          background:selPeriods.includes(q)?th.accent+"22":th.bgInput,
+                          border:`1px solid ${selPeriods.includes(q)?th.accent:th.border}`,
+                          color:selPeriods.includes(q)?th.accent:th.textFaint}}>
                         {q}
                       </div>
                     ))}
@@ -1902,7 +1902,7 @@ function ExportModal({ clients, onClose, th }) {
               )}
 
               {periodMode !== "all" && !hasMonthly && !hasQuarterly && (
-                <div style={{fontSize:11,color:"#475569",fontStyle:"italic"}}>No matching periods for selected clients.</div>
+                <div style={{fontSize:11,color:th.textFaintest,fontStyle:"italic"}}>No matching periods for selected clients.</div>
               )}
             </div>
 
@@ -1911,25 +1911,27 @@ function ExportModal({ clients, onClose, th }) {
               <Chk on={inclCommLog} onClick={() => setInclCommLog(!inclCommLog)} label="Include Communication Log sheet"/>
             </div>
 
-            <div style={{background:"#06080F",border:"1px solid #1E293B",borderRadius:8,padding:"11px 13px"}}>
-              <div style={{fontSize:10,fontWeight:700,color:"#334155",letterSpacing:".6px",textTransform:"uppercase",marginBottom:7}}>Output Preview</div>
-              <div style={{fontSize:11,color:"#475569",lineHeight:1.8}}>
-                📁 <code style={{color:"#93C5FD"}}>CA_Tracker_Export.zip</code><br/>
+            {/* Output preview */}
+            <div style={{background:th.bgStageFoot,border:`1px solid ${th.border}`,borderRadius:8,padding:"11px 13px"}}>
+              <div style={{fontSize:10,fontWeight:700,color:th.textFaint,letterSpacing:".6px",textTransform:"uppercase",marginBottom:7}}>Output Preview</div>
+              <div style={{fontSize:11,color:th.textMuted,lineHeight:1.8}}>
+                📁 <code style={{color:th.accent}}>MSA_Tracker_Export.zip</code><br/>
                 {clients.filter(c=>selClients.includes(c.id)).map(c=>{
                   const safe = c.name.replace(/[^\w\s]/g,"").replace(/\s+/g,"_");
-                  return <span key={c.id}>└ <code style={{color:"#86EFAC"}}>{safe}.xlsx</code><br/></span>;
+                  return <span key={c.id}>└ <code style={{color:"#22C55E"}}>{safe}.xlsx</code><br/></span>;
                 })}
               </div>
             </div>
           </div>
         </div>
 
-        <div style={{padding:"13px 22px",borderTop:"1px solid #1E293B",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{fontSize:12,color:"#334155"}}>
+        {/* Footer */}
+        <div style={{padding:"13px 22px",borderTop:`1px solid ${th.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:12,color:th.textFaint}}>
             {selClients.length} client{selClients.length!==1?"s":""} · {selFYs.length} FY{selFYs.length!==1?"s":""}
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            {progress && <span style={{fontSize:11,color:"#93C5FD",animation:"fadeUp .2s ease"}}>{progress}</span>}
+            {progress && <span style={{fontSize:11,color:th.accent,animation:"fadeUp .2s ease"}}>{progress}</span>}
             {!exporting && <button className="btn-g" onClick={onClose}>Cancel</button>}
             <button className="btn-p"
               onClick={doExport}
