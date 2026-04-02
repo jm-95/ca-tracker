@@ -78,6 +78,7 @@ const DARK_THEME = {
   tagEntity:   { bg:"#1E3A5F33", border:"#1E3A5F", color:"#93C5FD" },
   tagFreq:     { bg:"#1C3B2C33", border:"#1C3B2C", color:"#6EE7B7" },
   btnDelete:   { bg:"#7F1D1D22", border:"#7F1D1D55", color:"#FCA5A5", bgHover:"#7F1D1D55" },
+  overdue:     { bg:"#130303", bgHover:"#1A0808", bgHeader:"#1A050588", bgSection:"#1A050588", bgAlert:"#7F1D1D33", border:"#7F1D1D", borderFaint:"#7F1D1D55", borderRow:"#7F1D1D22", textPrimary:"#FCA5A5", textFaint:"#7F1D1D", textPeriod:"#F87171", countBg:"#7F1D1D55", divider:"#7F1D1D55" },
   gridColors:  { "Pending":"#78350F", "In Progress":"#1D4ED8", "Done":"#166534", "N/A":"#1E293B" },
   avColors:    ["#1E3A5F","#1C3B2C","#3B1D6E","#4A1942","#2D1B00","#1A2E4A"],
   avText:      "#FFFFFF",
@@ -124,6 +125,7 @@ const LIGHT_THEME = {
   tagEntity:   { bg:"#DBEAFE", border:"#93C5FD", color:"#1D4ED8" },
   tagFreq:     { bg:"#DCFCE7", border:"#86EFAC", color:"#166534" },
   btnDelete:   { bg:"#FEE2E2", border:"#FCA5A5", color:"#991B1B", bgHover:"#FECACA" },
+  overdue:     { bg:"#FFF1F1", bgHover:"#FFE4E4", bgHeader:"#FEE2E255", bgSection:"#FEE2E255", bgAlert:"#FEE2E2", border:"#F87171", borderFaint:"#FECACA", borderRow:"#FED7D7", textPrimary:"#991B1B", textFaint:"#DC2626", textPeriod:"#EF4444", countBg:"#FECACA", divider:"#FECACA" },
   gridColors:  { "Pending":"#D97706", "In Progress":"#2563EB", "Done":"#16A34A", "N/A":"#94A3B8" },
   avColors:    ["#BFDBFE","#BBF7D0","#DDD6FE","#FBCFE8","#FDE68A","#BAE6FD"],
   avText:      "#0C2D48",
@@ -1283,8 +1285,8 @@ function StageBlock({ stage, stageData, clientId, periodKey, th, onStageUpdate, 
 function DashboardTable({ rows, onSelectClient, isOverdue, th }) {
   if (rows.length === 0) return null;
   return (
-    <div style={{borderRadius:10,overflow:"hidden",border:isOverdue?"1px solid #7F1D1D":`1px solid ${th.border}`}}>
-      <div style={{display:"grid",gridTemplateColumns:`1fr 70px repeat(${STAGES.length},1fr)`,background:isOverdue?"#1A050588":th.bgStageFoot,borderBottom:isOverdue?"1px solid #7F1D1D55":`1px solid ${th.border}`,padding:"8px 14px",gap:6}}>
+    <div style={{borderRadius:10,overflow:"hidden",border:isOverdue?`1px solid ${th.overdue.border}`:`1px solid ${th.border}`}}>
+      <div style={{display:"grid",gridTemplateColumns:`1fr 70px repeat(${STAGES.length},1fr)`,background:isOverdue?th.overdue.bgHeader:th.bgStageFoot,borderBottom:isOverdue?`1px solid ${th.overdue.borderFaint}`:`1px solid ${th.border}`,padding:"8px 14px",gap:6}}>
         <div className="lbl" style={{margin:0,color:isOverdue?"#FCA5A5":th.textFaint}}>Client</div>
         <div className="lbl" style={{margin:0,color:isOverdue?"#FCA5A5":th.textFaint}}>Period</div>
         {STAGES.map(s=>(
@@ -1297,17 +1299,17 @@ function DashboardTable({ rows, onSelectClient, isOverdue, th }) {
         return (
           <div key={`${row.client.id}-${row.periodKey}`}
             onClick={()=>onSelectClient(row.client,row.periodKey)}
-            style={{display:"grid",gridTemplateColumns:`1fr 70px repeat(${STAGES.length},1fr)`,padding:"9px 14px",gap:6,borderBottom:isOverdue?"1px solid #7F1D1D22":`1px solid ${th.borderRowSep}`,cursor:"pointer",transition:"background .14s",alignItems:"center",background:isOverdue?"#130303":"transparent"}}
-            onMouseEnter={e=>e.currentTarget.style.background=isOverdue?"#1A0808":th.bgHover}
-            onMouseLeave={e=>e.currentTarget.style.background=isOverdue?"#130303":"transparent"}>
+            style={{display:"grid",gridTemplateColumns:`1fr 70px repeat(${STAGES.length},1fr)`,padding:"9px 14px",gap:6,borderBottom:isOverdue?`1px solid ${th.overdue.borderRow}`:`1px solid ${th.borderRowSep}`,cursor:"pointer",transition:"background .14s",alignItems:"center",background:isOverdue?th.overdue.bg:"transparent"}}
+            onMouseEnter={e=>e.currentTarget.style.background=isOverdue?th.overdue.bgHover:th.bgHover}
+            onMouseLeave={e=>e.currentTarget.style.background=isOverdue?th.overdue.bg:"transparent"}>
             <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
               <div style={{width:26,height:26,borderRadius:7,background:avBg,color:th.avText,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0,border:`1px solid ${th.border}`}}>{initials}</div>
               <div style={{minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:600,color:isOverdue?"#FCA5A5":th.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.client.name}</div>
-                <div style={{fontSize:10,color:isOverdue?"#7F1D1D":th.textFaintest}}>{row.client.entity}</div>
+                <div style={{fontSize:12,fontWeight:600,color:isOverdue?th.overdue.textPrimary:th.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.client.name}</div>
+                <div style={{fontSize:10,color:isOverdue?th.overdue.textFaint:th.textFaintest}}>{row.client.entity}</div>
               </div>
             </div>
-            <div style={{fontSize:11,fontWeight:700,color:isOverdue?"#F87171":th.textFaint}}>{row.periodKey}</div>
+            <div style={{fontSize:11,fontWeight:700,color:isOverdue?th.overdue.textPeriod:th.textFaint}}>{row.periodKey}</div>
             {STAGES.map(s=>{
               const st=row.periodData[s.key]?.status||"Pending";
               const dot=th.statusStyles[st].dot;
@@ -1334,11 +1336,11 @@ function DashboardSection({ title, icon, rows, onSelectClient, isOverdue, th, de
   return (
     <div style={{marginBottom:14}}>
       <button onClick={()=>setOpen(!open)}
-        style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:isOverdue?"#1A050588":th.bgCard,border:isOverdue?"1px solid #7F1D1D":`1px solid ${th.border}`,borderRadius:open?"8px 8px 0 0":"8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+        style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:isOverdue?th.overdue.bgSection:th.bgCard,border:isOverdue?`1px solid ${th.overdue.border}`:`1px solid ${th.border}`,borderRadius:open?"8px 8px 0 0":"8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
         <span style={{fontSize:14}}>{icon}</span>
-        <span style={{flex:1,fontSize:12,fontWeight:700,color:isOverdue?"#FCA5A5":th.textMuted,textAlign:"left"}}>{title}</span>
-        <span style={{fontSize:11,fontWeight:600,padding:"2px 10px",borderRadius:20,background:isOverdue?"#7F1D1D55":th.border,color:isOverdue?"#FCA5A5":th.textFaint}}>{rows.length} period{rows.length!==1?"s":""}</span>
-        <span style={{fontSize:11,color:isOverdue?"#7F1D1D":th.textFaintest}}>{open?"▲":"▼"}</span>
+        <span style={{flex:1,fontSize:12,fontWeight:700,color:isOverdue?th.overdue.textPrimary:th.textMuted,textAlign:"left"}}>{title}</span>
+        <span style={{fontSize:11,fontWeight:600,padding:"2px 10px",borderRadius:20,background:isOverdue?th.overdue.countBg:th.border,color:isOverdue?th.overdue.textPrimary:th.textFaint}}>{rows.length} period{rows.length!==1?"s":""}</span>
+        <span style={{fontSize:11,color:isOverdue?th.overdue.textFaint:th.textFaintest}}>{open?"▲":"▼"}</span>
       </button>
       {open && <DashboardTable rows={rows} onSelectClient={onSelectClient} isOverdue={isOverdue} th={th}/>}
     </div>
@@ -1442,11 +1444,11 @@ function Dashboard({ clients, activeFY, th, onSelectClient }) {
           <div style={{fontSize:12,color:th.textFaint}}>{activeFY} — as of {curMonthKey} {now.getFullYear()}</div>
         </div>
         {totalOverdue > 0 && (
-          <div style={{background:"#7F1D1D33",border:"1px solid #7F1D1D",borderRadius:10,padding:"8px 16px",display:"flex",alignItems:"center",gap:8}}>
+          <div style={{background:th.overdue.bgAlert,border:`1px solid ${th.overdue.border}`,borderRadius:10,padding:"8px 16px",display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:18}}>🚨</span>
             <div>
-              <div style={{fontSize:13,fontWeight:700,color:"#FCA5A5"}}>{totalOverdue} Overdue Period{totalOverdue!==1?"s":""}</div>
-              <div style={{fontSize:11,color:"#F87171"}}>Requires immediate attention</div>
+              <div style={{fontSize:13,fontWeight:700,color:th.overdue.textPrimary}}>{totalOverdue} Overdue Period{totalOverdue!==1?"s":""}</div>
+              <div style={{fontSize:11,color:th.overdue.textFaint}}>Requires immediate attention</div>
             </div>
           </div>
         )}
@@ -1473,9 +1475,9 @@ function Dashboard({ clients, activeFY, th, onSelectClient }) {
           {totalOverdue > 0 && (
             <div style={{marginBottom:22}}>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                <div style={{height:1,flex:1,background:"#7F1D1D55"}}/>
-                <span style={{fontSize:11,fontWeight:700,color:"#F87171",textTransform:"uppercase",letterSpacing:"1px"}}>⚠ Overdue — Past Periods Not Closed</span>
-                <div style={{height:1,flex:1,background:"#7F1D1D55"}}/>
+                <div style={{height:1,flex:1,background:th.overdue.divider}}/>
+                <span style={{fontSize:11,fontWeight:700,color:th.overdue.textPeriod,textTransform:"uppercase",letterSpacing:"1px"}}>⚠ Overdue — Past Periods Not Closed</span>
+                <div style={{height:1,flex:1,background:th.overdue.divider}}/>
               </div>
               <DashboardSection title="Monthly Clients — Overdue"   icon="📅" rows={overdueMonthly}   onSelectClient={onSelectClient} isOverdue={true}  th={th}/>
               <DashboardSection title="Quarterly Clients — Overdue" icon="📆" rows={overdueQuarterly} onSelectClient={onSelectClient} isOverdue={true}  th={th}/>
@@ -1577,7 +1579,7 @@ function CommunicationLog({ clientId, entries, th, onAdd, onDelete }) {
             </div>
             {confirmId === entry.id
               ? <button onClick={()=>{onDelete(clientId,entry.id);setConfirmId(null);}}
-                  style={{background:"#7F1D1D55",border:"1px solid #7F1D1D",color:"#FCA5A5",borderRadius:6,padding:"3px 9px",fontSize:11,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>
+                  style={{background:th.btnDelete.bgHover,border:`1px solid ${th.btnDelete.border}`,color:th.btnDelete.color,borderRadius:6,padding:"3px 9px",fontSize:11,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>
                   Confirm?
                 </button>
               : <button onClick={()=>setConfirmId(entry.id)}
