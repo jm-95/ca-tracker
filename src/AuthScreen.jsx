@@ -40,7 +40,7 @@ export default function AuthScreen() {
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 36 }}>
           <div style={{ width: 48, height: 48, background: "linear-gradient(135deg,#2563EB,#0EA5E9)", borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 24, marginBottom: 14 }}>📋</div>
-          <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 700, color: "#F1F5F9", marginBottom: 6 }}>CA Client Tracker</h1>
+          <h1 style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24, fontWeight: 700, color: "#F1F5F9", marginBottom: 6 }}>MSA Accounting Tracker</h1>
           <p style={{ fontSize: 13, color: "#475569" }}>Accounting workflow management</p>
         </div>
 
