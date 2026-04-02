@@ -518,7 +518,7 @@ export default function Tracker({ session }) {
       <div style={{background:th.bgTopbar,borderBottom:`1px solid ${darkMode?th.border:'#1A4A6A'}`,padding:"0 22px",height:54,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,position:"sticky",top:0,zIndex:100}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:30,height:30,background:"linear-gradient(135deg,#2563EB,#0EA5E9)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15}}>📋</div>
-          <span style={{fontFamily:"'Libre Baskerville',serif",fontSize:18,fontWeight:700,color:"#F1F5F9"}}>CA Client Tracker</span>
+          <span style={{fontFamily:"'Libre Baskerville',serif",fontSize:18,fontWeight:700,color:"#F1F5F9"}}>MSA Accounting Tracker</span>
           {saving && <span style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginLeft:6}}>saving…</span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
