@@ -1920,9 +1920,10 @@ function ExportModal({ clients, onClose, th }) {
           rows.push(["Period",      period.label]);
           rows.push([]);
           rows.push(["Stage","Status","Done By","Done Date","Remarks"]);
+          const toDate = (s) => { if (!s) return ""; const d = new Date(s); return isNaN(d.getTime()) ? s : d; };
           STAGES.forEach(stage => {
             const sd = periodData[stage.key] || {};
-            rows.push([stage.label, sd.status||"Pending", sd.doneBy||"", sd.doneDate||"", sd.remarks||""]);
+            rows.push([stage.label, sd.status||"Pending", sd.doneBy||"", toDate(sd.doneDate), sd.remarks||""]);
             const checklist = sd.checklist || [];
             if (checklist.length > 0) {
               rows.push(["  Checklist Items", "Status", "Done By", "Done Date", ""]);
@@ -1931,22 +1932,29 @@ function ExportModal({ clients, onClose, th }) {
                   `    ${idx+1}. ${item.label}`,
                   item.status || "Pending",
                   item.doneBy || "",
-                  item.doneDate || "",
+                  toDate(item.doneDate),
                   ""
                 ]);
               });
             }
           });
-          const ws = XLSX.utils.aoa_to_sheet(rows);
+          const ws = XLSX.utils.aoa_to_sheet(rows, { cellDates: true });
           ws["!cols"] = [40, 14, 14, 14, 40].map(w => ({ wch: w }));
+          // Apply date format to Done Date column (col D = index 3) for all data rows
+          Object.keys(ws).forEach(addr => {
+            if (addr[0] === "!" || ws[addr].t !== 'd') return;
+            ws[addr].z = "dd-mmm-yyyy";
+          });
           XLSX.utils.book_append_sheet(wb, ws, sheetName);
         }
       }
       if (inclCommLog) {
+        const toDate = (s) => { if (!s) return ""; const d = new Date(s); return isNaN(d.getTime()) ? s : d; };
         const commRows = [["Date","Note","Added By"]];
-        (client.commLog || []).forEach(e => commRows.push([e.date, e.note, e.addedBy]));
-        const ws = XLSX.utils.aoa_to_sheet(commRows);
-        ws["!cols"] = [{ wch:14 }, { wch:50 }, { wch:14 }];
+        (client.commLog || []).forEach(e => commRows.push([toDate(e.date), e.note, e.addedBy]));
+        const ws = XLSX.utils.aoa_to_sheet(commRows, { cellDates: true });
+        Object.keys(ws).forEach(addr => { if (addr[0] === "!" || ws[addr].t !== 'd') return; ws[addr].z = "dd-mmm-yyyy"; });
+        ws["!cols"] = [{ wch:16 }, { wch:50 }, { wch:14 }];
         XLSX.utils.book_append_sheet(wb, ws, "Communication Log");
       }
       const wbBuf   = XLSX.write(wb, { bookType:"xlsx", type:"array" });
