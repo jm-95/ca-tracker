@@ -198,7 +198,8 @@ export default function Tracker({ session }) {
   const [filterStatus, setFilterStatus] = useState("All");
   const [saving,       setSaving]       = useState(false);
   const [toast,        setToast]        = useState(null);
-  const [showExport,   setShowExport]   = useState(false);
+  const [showExport,      setShowExport]      = useState(false);
+  const [showAuditExport, setShowAuditExport] = useState(false);
   const [darkMode,     setDarkMode]     = useState(() => localStorage.getItem("caTrackerDark") === "true");
 
   const th = darkMode ? DARK_THEME : LIGHT_THEME;
@@ -630,7 +631,7 @@ export default function Tracker({ session }) {
           <span style={{fontSize:11,color:"rgba(255,255,255,0.35)"}}>{session.user.email}</span>
           <button style={{background:"transparent",color:"rgba(255,255,255,0.55)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:8,padding:"6px 12px",fontFamily:"'DM Sans',sans-serif",fontSize:12,cursor:"pointer"}} onClick={async()=>await supabase.auth.signOut()}>Sign out</button>
           <button className={`fy-btn${view==="dashboard"?" act":""}`} onClick={()=>{setView("dashboard");setSelected(null);}}>📊 Dashboard</button>
-          <button style={{background:"transparent",color:"rgba(255,255,255,0.55)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:8,padding:"6px 12px",fontFamily:"'DM Sans',sans-serif",fontSize:12,cursor:"pointer"}} onClick={()=>downloadAllAuditLog(clients)}>⬇ Audit Log</button>
+          <button style={{background:"transparent",color:"rgba(255,255,255,0.55)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:8,padding:"6px 12px",fontFamily:"'DM Sans',sans-serif",fontSize:12,cursor:"pointer"}} onClick={()=>setShowAuditExport(true)}>⬇ Audit Log</button>
           <button style={{background:"transparent",color:"#93C5FD",border:"1px solid #1D4ED8",borderRadius:8,padding:"6px 12px",fontFamily:"'DM Sans',sans-serif",fontSize:12,cursor:"pointer"}} onClick={()=>setShowExport(true)}>📤 Export</button>
           {/* Dark/Light toggle */}
           <button
@@ -740,6 +741,10 @@ export default function Tracker({ session }) {
 
       {showExport && (
         <ExportModal clients={clients} onClose={()=>setShowExport(false)} th={th}/>
+      )}
+
+      {showAuditExport && (
+        <AuditExportModal clients={clients} onClose={()=>setShowAuditExport(false)} th={th}/>
       )}
 
       {toast && (
@@ -1674,33 +1679,178 @@ function ClientForm({ client, onSave, onCancel, th }) {
 
 // ── Audit Log Download (standalone) ──────────────────────────────────────────
 
-function downloadAllAuditLog(clients) {
-  const rows = [];
-  clients.forEach(client => {
-    (client.auditLog || []).forEach(e => {
-      let description = "";
-      if (e.type === "status")                description = `${e.stage} [${e.period}] changed "${e.from}" → "${e.to}"`;
-      else if (e.type === "field")            description = `${e.stage} [${e.period}] — ${e.field} set to "${e.to}"`;
-      else if (e.type === "checklist_add")    description = `${e.stage} [${e.period}] — checklist added: "${e.item}"`;
-      else if (e.type === "checklist_delete") description = `${e.stage} [${e.period}] — checklist removed: "${e.item}"`;
-      else description = JSON.stringify(e);
-      const d   = new Date(e.ts);
-      const fmt = d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})
-                + " " + d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",hour12:true});
-      rows.push({ Client:client.name, FY:e.fy||"", Actor:e.actor||"", Timestamp:fmt, Description:description });
+function AuditExportModal({ clients, onClose, th }) {
+  const allFYs = fyList();
+  const ACTION_TYPES = [
+    { key:"status",           label:"Status changes" },
+    { key:"field",            label:"Field edits (Done By / Date / Remarks)" },
+    { key:"checklist_add",    label:"Checklist additions" },
+    { key:"checklist_delete", label:"Checklist deletions" },
+  ];
+
+  const [selClients,  setSelClients]  = useState(clients.map(c => c.id));
+  const [selFYs,      setSelFYs]      = useState(allFYs);
+  const [periodMode,  setPeriodMode]  = useState("all"); // "all" | "specific"
+  const [selPeriods,  setSelPeriods]  = useState([]);
+  const [selTypes,    setSelTypes]    = useState(ACTION_TYPES.map(t => t.key));
+
+  const allCliSel  = selClients.length === clients.length;
+  const allFYsSel  = selFYs.length === allFYs.length;
+  const allTypesSel = selTypes.length === ACTION_TYPES.length;
+
+  const togClient = (id) => setSelClients(p => p.includes(id) ? p.filter(x=>x!==id) : [...p, id]);
+  const togFY     = (fy) => setSelFYs(p    => p.includes(fy) ? p.filter(x=>x!==fy) : [...p, fy]);
+  const togPeriod = (k)  => setSelPeriods(p => p.includes(k) ? p.filter(x=>x!==k)  : [...p, k]);
+  const togType   = (k)  => setSelTypes(p   => p.includes(k) ? p.filter(x=>x!==k)  : [...p, k]);
+
+  // Derive all period keys used across selected clients
+  const allPeriodKeys = [...new Set(
+    clients.filter(c => selClients.includes(c.id)).flatMap(c => {
+      const periods = periodsForClient(c);
+      return periods.map(p => p.key);
+    })
+  )];
+
+  const doDownload = () => {
+    const rows = [];
+    clients.filter(c => selClients.includes(c.id)).forEach(client => {
+      (client.auditLog || []).forEach(e => {
+        if (!selFYs.includes(e.fy))     return;
+        if (!selTypes.includes(e.type)) return;
+        if (periodMode === "specific" && selPeriods.length > 0 && !selPeriods.includes(e.period)) return;
+
+        let description = "";
+        if (e.type === "status")                description = `${e.stage} [${e.period}] changed "${e.from}" → "${e.to}"`;
+        else if (e.type === "field")            description = `${e.stage} [${e.period}] — ${e.field} set to "${e.to}"`;
+        else if (e.type === "checklist_add")    description = `${e.stage} [${e.period}] — checklist added: "${e.item}"`;
+        else if (e.type === "checklist_delete") description = `${e.stage} [${e.period}] — checklist removed: "${e.item}"`;
+        else description = JSON.stringify(e);
+
+        const d   = new Date(e.ts);
+        const fmt = d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})
+                  + " " + d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",hour12:true});
+        rows.push({ Client:client.name, FY:e.fy||"", Period:e.period||"", "Action Type":e.type||"", Actor:e.actor||"", Timestamp:fmt, Description:description });
+      });
     });
-  });
-  rows.sort((a,b) => a.Client.localeCompare(b.Client));
-  const headers = ["Client","FY","Actor","Timestamp","Description"];
-  const csv = [
-    headers.join(","),
-    ...rows.map(r => headers.map(h => `"${(r[h]||"").replace(/"/g,'""')}"`).join(","))
-  ].join("\n");
-  const blob = new Blob([csv], { type:"text/csv" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href = url; a.download = "Audit_Log_All_Clients.csv"; a.click();
-  URL.revokeObjectURL(url);
+    rows.sort((a,b) => a.Client.localeCompare(b.Client) || a.Timestamp.localeCompare(b.Timestamp));
+    const headers = ["Client","FY","Period","Action Type","Actor","Timestamp","Description"];
+    const csv = [
+      headers.join(","),
+      ...rows.map(r => headers.map(h => `"${(r[h]||"").replace(/"/g,'""')}"`).join(","))
+    ].join("\n");
+    const blob = new Blob([csv], { type:"text/csv" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = "MSA_Audit_Log.csv"; a.click();
+    URL.revokeObjectURL(url);
+    onClose();
+  };
+
+  const S = {
+    row:   { display:"flex", alignItems:"center", gap:8, cursor:"pointer", padding:"5px 8px", borderRadius:6 },
+    chk:   { width:14, height:14, borderRadius:3, border:`1px solid ${th.border}`, background:th.bgInput, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, color:th.textPrimary },
+    chkOn: { background:th.accent, borderColor:th.accent, color:"#fff" },
+    lbl:   { fontSize:12, color:th.textMuted },
+    sh:    { fontSize:10, fontWeight:700, letterSpacing:".8px", textTransform:"uppercase", color:th.textFaint, marginBottom:8 },
+    sec:   { marginBottom:18 },
+  };
+  const Chk = ({ on, onClick, label, style }) => (
+    <div style={{ ...S.row, ...style }} onClick={onClick}>
+      <div style={{ ...S.chk, ...(on ? S.chkOn : {}) }}>{on && "✓"}</div>
+      <span style={S.lbl}>{label}</span>
+    </div>
+  );
+
+  const totalRows = clients.filter(c => selClients.includes(c.id)).reduce((acc, client) => {
+    return acc + (client.auditLog || []).filter(e => {
+      if (!selFYs.includes(e.fy))     return false;
+      if (!selTypes.includes(e.type)) return false;
+      if (periodMode === "specific" && selPeriods.length > 0 && !selPeriods.includes(e.period)) return false;
+      return true;
+    }).length;
+  }, 0);
+
+  return (
+    <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth:680 }}>
+        <div style={{padding:"14px 20px",borderBottom:`1px solid ${th.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <h2 style={{fontFamily:"'Libre Baskerville',serif",fontSize:15,color:th.textPrimary}}>🕓 Export Audit Log</h2>
+            <p style={{fontSize:11,color:th.textFaint,marginTop:2}}>Filter and download the full audit trail as a CSV.</p>
+          </div>
+          <button className="btn-g" onClick={onClose} style={{padding:"5px 10px"}}>✕</button>
+        </div>
+
+        <div style={{padding:"16px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,maxHeight:"60vh",overflowY:"auto"}}>
+          {/* Left — Clients + FY */}
+          <div>
+            <div style={S.sec}>
+              <div style={S.sh}>Clients</div>
+              <Chk on={allCliSel} onClick={()=>setSelClients(allCliSel?[]:clients.map(c=>c.id))} label="Select All"
+                style={{marginBottom:5,paddingBottom:7,borderBottom:`1px solid ${th.border}`}}/>
+              <div style={{maxHeight:140,overflowY:"auto",display:"flex",flexDirection:"column",gap:1}}>
+                {clients.map(c=><Chk key={c.id} on={selClients.includes(c.id)} onClick={()=>togClient(c.id)} label={c.name}/>)}
+              </div>
+            </div>
+            <div style={S.sec}>
+              <div style={S.sh}>Financial Year</div>
+              <Chk on={allFYsSel} onClick={()=>setSelFYs(allFYsSel?[]:allFYs)} label="All FYs"
+                style={{marginBottom:5,paddingBottom:7,borderBottom:`1px solid ${th.border}`}}/>
+              <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                {allFYs.map(fy=><Chk key={fy} on={selFYs.includes(fy)} onClick={()=>togFY(fy)} label={fy}/>)}
+              </div>
+            </div>
+          </div>
+
+          {/* Right — Period + Action type */}
+          <div>
+            <div style={S.sec}>
+              <div style={S.sh}>Period</div>
+              <div style={S.row} onClick={()=>{setPeriodMode("all");setSelPeriods([]);}}>
+                <div style={{...S.chk,borderRadius:"50%",...(periodMode==="all"?S.chkOn:{})}}>{periodMode==="all"&&"●"}</div>
+                <span style={S.lbl}>All periods</span>
+              </div>
+              <div style={{...S.row,marginBottom:6}} onClick={()=>setPeriodMode("specific")}>
+                <div style={{...S.chk,borderRadius:"50%",...(periodMode==="specific"?S.chkOn:{})}}>{periodMode==="specific"&&"●"}</div>
+                <span style={S.lbl}>Specific periods</span>
+              </div>
+              {periodMode==="specific" && (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginLeft:8}}>
+                  {allPeriodKeys.map(k=>(
+                    <div key={k} onClick={()=>togPeriod(k)}
+                      style={{padding:"3px 0",borderRadius:5,fontSize:10,fontWeight:600,cursor:"pointer",textAlign:"center",
+                        background:selPeriods.includes(k)?th.accent+"22":th.bgInput,
+                        border:`1px solid ${selPeriods.includes(k)?th.accent:th.border}`,
+                        color:selPeriods.includes(k)?th.accent:th.textFaint}}>
+                      {k}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={S.sec}>
+              <div style={S.sh}>Action Types</div>
+              <Chk on={allTypesSel} onClick={()=>setSelTypes(allTypesSel?[]:ACTION_TYPES.map(t=>t.key))} label="All types"
+                style={{marginBottom:5,paddingBottom:7,borderBottom:`1px solid ${th.border}`}}/>
+              {ACTION_TYPES.map(t=><Chk key={t.key} on={selTypes.includes(t.key)} onClick={()=>togType(t.key)} label={t.label}/>)}
+            </div>
+          </div>
+        </div>
+
+        <div style={{padding:"12px 20px",borderTop:`1px solid ${th.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:12,color:th.textFaint}}>{totalRows} row{totalRows!==1?"s":""} match your filters</span>
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn-g" onClick={onClose}>Cancel</button>
+            <button className="btn-p" onClick={doDownload} disabled={totalRows===0||selClients.length===0}
+              style={{opacity:(totalRows===0||selClients.length===0)?0.5:1,minWidth:130}}>
+              ⬇ Download CSV
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Export Modal ──────────────────────────────────────────────────────────────
@@ -1769,16 +1919,26 @@ function ExportModal({ clients, onClose, th }) {
           rows.push(["FY",          fy]);
           rows.push(["Period",      period.label]);
           rows.push([]);
-          rows.push(["Stage","Status","Done By","Done Date","Remarks","Checklist Items"]);
+          rows.push(["Stage","Status","Done By","Done Date","Remarks"]);
           STAGES.forEach(stage => {
-            const sd        = periodData[stage.key] || {};
-            const checklist = (sd.checklist || []).map(i =>
-              `[${i.status||"Pending"}] ${i.label}${i.doneBy ? " ("+i.doneBy+")" : ""}`
-            ).join("; ");
-            rows.push([stage.label, sd.status||"Pending", sd.doneBy||"", sd.doneDate||"", sd.remarks||"", checklist]);
+            const sd = periodData[stage.key] || {};
+            rows.push([stage.label, sd.status||"Pending", sd.doneBy||"", sd.doneDate||"", sd.remarks||""]);
+            const checklist = sd.checklist || [];
+            if (checklist.length > 0) {
+              rows.push(["  Checklist Items", "Status", "Done By", "Done Date", ""]);
+              checklist.forEach((item, idx) => {
+                rows.push([
+                  `    ${idx+1}. ${item.label}`,
+                  item.status || "Pending",
+                  item.doneBy || "",
+                  item.doneDate || "",
+                  ""
+                ]);
+              });
+            }
           });
           const ws = XLSX.utils.aoa_to_sheet(rows);
-          ws["!cols"] = [22, 14, 14, 14, 34, 50].map(w => ({ wch: w }));
+          ws["!cols"] = [40, 14, 14, 14, 40].map(w => ({ wch: w }));
           XLSX.utils.book_append_sheet(wb, ws, sheetName);
         }
       }
